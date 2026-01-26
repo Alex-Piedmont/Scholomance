@@ -44,7 +44,7 @@ python --version  # Verify 3.11+
 ```bash
 # Clone repository
 git clone <repo-url>
-cd university-tech-scraper
+cd Scholomance
 
 # Create virtual environment
 python -m venv venv
@@ -52,6 +52,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+pip install -e .
 
 # Install Playwright browsers
 playwright install chromium
@@ -60,8 +61,11 @@ playwright install chromium
 cp .env.example .env
 # Edit .env with your database credentials
 
-# Initialize database
-python scripts/init_db.py
+# Initialize database schema (requires PostgreSQL running)
+psql -d your_database -f schema.sql
+
+# Or use the CLI to create basic tables:
+python -m src.cli init-db
 ```
 
 ### Usage

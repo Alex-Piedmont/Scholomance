@@ -1,0 +1,89 @@
+version: "3.8"
+
+services:
+  # PostgreSQL database
+  db:
+    image: postgres:16-alpine
+    container_name: tech_scraper_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-techscraper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-techscraper_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-tech_transfer}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-techscraper} -d ${POSTGRES_DB:-tech_transfer}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Tech scraper application
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tech_scraper_app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-techscraper}:${POSTGRES_PASSWORD:-techscraper_secret}@db:5432/${POSTGRES_DB:-tech_transfer}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-techscraper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-techscraper_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-tech_transfer}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FILE: /app/logs/scraper.log
+    volumes:
+      - scraper_logs:/app/logs
+      - ./exports:/app/exports
+    restart: unless-stopped
+    # Default: run CLI help
+    command: ["python", "-m", "src.cli", "--help"]
+
+  # Scheduled scraper (optional, runs in daemon mode)
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tech_scraper_scheduler
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-techscraper}:${POSTGRES_PASSWORD:-techscraper_secret}@db:5432/${POSTGRES_DB:-tech_transfer}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-techscraper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-techscraper_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-tech_transfer}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      NOTIFICATION_EMAIL: ${NOTIFICATION_EMAIL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FILE: /app/logs/scheduler.log
+    volumes:
+      - scheduler_logs:/app/logs
+    restart: unless-stopped
+    command: ["python", "-m", "src.cli", "schedule", "--weekly", "--run"]
+    profiles:
+      - scheduler  # Only starts with: docker compose --profile scheduler up
+
+volumes:
+  postgres_data:
+  scraper_logs:
+  scheduler_logs:
