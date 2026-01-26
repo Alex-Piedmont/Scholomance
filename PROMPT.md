@@ -170,7 +170,7 @@ Output: `<promise>PROJECT_COMPLETE</promise>` when production-ready
 
 ## Project Structure Suggestion
 ```
-university-tech-scraper/
+Scholomance/
 ├── README.md
 ├── requirements.txt
 ├── .env.example

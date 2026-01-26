@@ -10,147 +10,223 @@ This repository contains a **complete specification** for Claude Code to build t
 2. **README.md** - Project overview and documentation
 3. **schema.sql** - Complete database schema
 4. **requirements.txt** - All Python dependencies
-5. **.env.example** - Configuration template
-6. **.gitignore** - Standard Python ignore rules
+5. **pyproject.toml** - Project configuration
+
+## Understanding the Ralph Wiggum Loop
+
+The Ralph Wiggum loop is a bash-based technique for autonomous development with Claude Code. The key insight is that **each iteration runs in a fresh context window**, preventing context bloat and allowing the agent to work on long-running tasks without degradation.
+
+### Core Mechanism
+
+```bash
+#!/bin/bash
+# ralph.sh - Ralph Wiggum loop runner
+
+MAX_ITERATIONS=${1:-20}
+
+for ((i=1; i<=$MAX_ITERATIONS; i++)); do
+  echo "=== Iteration $i of $MAX_ITERATIONS ==="
+
+  result=$(claude -p "$(cat PROMPT.md)" --output-format text 2>&1) || true
+
+  # Check for completion signal
+  if [[ "$result" == *"<promise>PHASE_COMPLETE</promise>"* ]]; then
+    echo "Phase completed successfully!"
+    exit 0
+  fi
+
+  if [[ "$result" == *"<promise>PROJECT_COMPLETE</promise>"* ]]; then
+    echo "Project completed successfully!"
+    exit 0
+  fi
+
+  echo "Iteration $i complete. Continuing..."
+done
+
+echo "Max iterations reached without completion signal."
+exit 1
+```
+
+### Why Fresh Context Each Iteration?
+
+- **No context bloat**: Previous iteration's reasoning doesn't accumulate
+- **Consistent performance**: Each iteration has full context budget
+- **State via filesystem**: Progress is tracked through files, commits, and database state
+- **Cost predictable**: Each iteration uses similar token counts
 
 ## How to Use with Claude Code
 
-### Step 1: Upload to GitHub
+### Step 1: Clone the Repository
 
 ```bash
-# Create new repository on GitHub
-# Then locally:
-git init
-git add .
-git commit -m "Initial commit: Ralph loop specifications"
-git remote add origin <your-repo-url>
-git push -u origin main
+git clone <your-repo-url>
+cd Scholomance
 ```
 
-### Step 2: Clone in Claude Code Environment
+### Step 2: Create the Ralph Loop Script
+
+Save this as `ralph.sh` in the project root:
 
 ```bash
-# In your terminal where Claude Code is available
-git clone <your-repo-url>
-cd university-tech-scraper
+#!/bin/bash
+# Ralph Wiggum loop for autonomous development
+
+MAX_ITERATIONS=${1:-20}
+PROMPT_FILE=${2:-PROMPT.md}
+
+echo "Starting Ralph Wiggum loop"
+echo "Max iterations: $MAX_ITERATIONS"
+echo "Prompt file: $PROMPT_FILE"
+echo "================================"
+
+for ((i=1; i<=$MAX_ITERATIONS; i++)); do
+  echo ""
+  echo "=== Iteration $i of $MAX_ITERATIONS ==="
+  echo "Started at: $(date)"
+
+  # Run Claude with fresh context each time
+  result=$(claude -p "$(cat $PROMPT_FILE)" --output-format text 2>&1) || true
+
+  # Log the result summary (last 50 lines)
+  echo "$result" | tail -50
+
+  # Check for completion signals
+  if [[ "$result" == *"<promise>PHASE_COMPLETE</promise>"* ]]; then
+    echo ""
+    echo "=== PHASE COMPLETED ==="
+    echo "Finished at: $(date)"
+    exit 0
+  fi
+
+  if [[ "$result" == *"<promise>PROJECT_COMPLETE</promise>"* ]]; then
+    echo ""
+    echo "=== PROJECT COMPLETED ==="
+    echo "Finished at: $(date)"
+    exit 0
+  fi
+
+  echo "Iteration $i complete at $(date)"
+
+  # Optional: small delay between iterations
+  sleep 2
+done
+
+echo ""
+echo "=== MAX ITERATIONS REACHED ==="
+echo "Consider running more iterations or debugging manually."
+exit 1
+```
+
+Make it executable:
+```bash
+chmod +x ralph.sh
 ```
 
 ### Step 3: Start the Ralph Loop
 
-The Ralph Wiggum plugin uses the PROMPT.md file by default. Start with Phase 1:
-
 ```bash
-# Start Ralph loop for Phase 1 (Stanford MVP)
-claude -p "/ralph-loop:ralph-loop --max-iterations 30 --completion-promise 'PHASE_COMPLETE'"
-```
+# Run with default 20 iterations
+./ralph.sh
 
-**Important flags:**
-- `--max-iterations 30` - Prevents infinite loops, adjust as needed
-- `--completion-promise 'PHASE_COMPLETE'` - Claude will output this when phase is done
+# Run with custom iteration count
+./ralph.sh 30
+
+# Run with custom prompt file
+./ralph.sh 30 PROMPT.md
+```
 
 ### Step 4: Monitor Progress
 
-Claude Code will:
-1. Read PROMPT.md Phase 1 requirements
-2. Set up the database schema
-3. Build the Stanford scraper
-4. Create CLI commands
-5. Write tests
-6. Run tests and verify
-7. Output `<promise>PHASE_COMPLETE</promise>` when done
+The script outputs progress to stdout. For long-running sessions:
 
-You can monitor in real-time if using tmux:
 ```bash
-# With monitoring
-claude -p "/ralph-loop:ralph-loop --max-iterations 30 --monitor --completion-promise 'PHASE_COMPLETE'"
+# Run in background with logging
+./ralph.sh 30 2>&1 | tee ralph_output.log &
+
+# Monitor the log
+tail -f ralph_output.log
+
+# Or use tmux/screen for persistent sessions
+tmux new -s ralph
+./ralph.sh 30
+# Detach with Ctrl+B, D
+# Reattach with: tmux attach -t ralph
 ```
 
 ### Step 5: Proceed to Next Phases
 
-Once Phase 1 completes:
+Once Phase 1 completes, update PROMPT.md to focus on Phase 2, then run again:
 
 ```bash
 # Phase 2: LLM Classification
-# Edit PROMPT.md to uncomment Phase 2 or update completion criteria
-claude -p "/ralph-loop:ralph-loop --max-iterations 25 --completion-promise 'PHASE_COMPLETE'"
+./ralph.sh 25
 
 # Phase 3: Multi-university
-claude -p "/ralph-loop:ralph-loop --max-iterations 40 --completion-promise 'PHASE_COMPLETE'"
+./ralph.sh 40
 
 # Phase 4: Production ready
-claude -p "/ralph-loop:ralph-loop --max-iterations 20 --completion-promise 'PROJECT_COMPLETE'"
+./ralph.sh 20
 ```
 
 ## Ralph Loop Best Practices Applied Here
 
-### ✅ Clear Success Criteria
-- Each phase has explicit completion criteria
+### Clear Success Criteria
+- Each phase has explicit completion criteria in PROMPT.md
 - Verification steps are testable
-- Completion promise is clearly defined
+- Completion promise is clearly defined (`<promise>PHASE_COMPLETE</promise>`)
 
-### ✅ Verification-First Approach
+### Verification-First Approach
 - Tests are required for each phase
 - Tests must pass before marking complete
 - Coverage targets specified (>70%)
 
-### ✅ Escape Hatches
-- `--max-iterations` prevents runaway loops
+### Escape Hatches
+- Max iterations argument prevents runaway loops
 - "If Stuck" sections in PROMPT.md guide alternative approaches
 - Each phase is independently completable
 
-### ✅ Incremental Building
+### Incremental Building
 - Phase 1: Core functionality (Stanford only)
 - Phase 2: Add intelligence (classification)
 - Phase 3: Scale (more universities)
 - Phase 4: Production hardening
 
-### ✅ Deterministic Failures
-- Tests provide clear pass/fail
-- Database constraints prevent bad data
-- Error handling is explicit requirement
+### State Persistence via Filesystem
+- Code changes are committed to git
+- Database stores scraped data
+- Test results indicate progress
+- Each fresh context reads current state from files
 
 ## Troubleshooting
 
 ### If Ralph Loop Gets Stuck
 
-1. **Check the logs** - Claude Code logs show what it's attempting
-2. **Reduce scope** - Lower max-iterations or simplify requirements
+1. **Check the output log** - Look for repeated errors or patterns
+2. **Reduce scope** - Lower max iterations or simplify requirements in PROMPT.md
 3. **Manual intervention** - Fix the blocker, commit, and resume loop
-4. **Adjust PROMPT.md** - Add more specific guidance for stuck area
+4. **Adjust PROMPT.md** - Add more specific guidance for the stuck area
 
 ### If Tests Keep Failing
 
 ```bash
-# Exit the Ralph loop (Ctrl+C)
+# Stop the Ralph loop (Ctrl+C)
 # Debug manually
 pytest tests/ -v --pdb
 # Fix the issue
 git commit -am "Fix test failures"
 # Resume Ralph loop
-claude -p "/ralph-loop:ralph-loop --max-iterations 15 --completion-promise 'PHASE_COMPLETE'"
+./ralph.sh 15
 ```
 
-### Cost Management
+### If Same Error Repeats
 
-Ralph loops can consume significant API credits:
-- Phase 1: Estimate ~$20-40 (30 iterations × database + scraper + tests)
-- Phase 2: Estimate ~$15-30 (25 iterations + LLM integration)
-- Phase 3: Estimate ~$30-50 (40 iterations × multi-university complexity)
-- Phase 4: Estimate ~$10-20 (production hardening)
+The fresh context means Claude doesn't remember previous failed attempts. Add guidance to PROMPT.md:
 
-**Total estimate: $75-140 for complete project**
-
-Set conservative `--max-iterations` to start. You can always resume with more iterations.
-
-## Expected Timeline
-
-With proper Ralph loop:
-- **Phase 1**: 2-4 hours (depending on iterations needed)
-- **Phase 2**: 1-2 hours
-- **Phase 3**: 3-5 hours (most complex - multiple scraper formats)
-- **Phase 4**: 1-2 hours
-
-**Total: 7-13 hours of autonomous development**
+```markdown
+### Known Issues
+- If you encounter [specific error], the solution is [specific fix]
+- Avoid approach X, use approach Y instead
+```
 
 ## Manual Checkpoints
 
@@ -202,57 +278,97 @@ After Phase 3 completes, add more universities:
 2. Create new phase in PROMPT.md
 3. Run Ralph loop for that phase
 
-## Advanced: Parallel Ralph Loops
+## Advanced: Enhanced Ralph Script
 
-Once Phase 1 is complete, you could run multiple loops in parallel:
+For more control, use this enhanced version:
 
 ```bash
-# Terminal 1: Classification development
-cd university-tech-scraper
-claude -p "/ralph-loop:ralph-loop 'Implement Phase 2: LLM Classification' --max-iterations 25"
+#!/bin/bash
+# ralph_enhanced.sh - Enhanced Ralph Wiggum loop
 
-# Terminal 2: Georgia Tech scraper
-cd university-tech-scraper-gatech
-claude -p "/ralph-loop:ralph-loop 'Build Georgia Tech scraper matching our schema' --max-iterations 30"
+MAX_ITERATIONS=${1:-20}
+PROMPT_FILE=${2:-PROMPT.md}
+LOG_DIR="ralph_logs"
+
+mkdir -p "$LOG_DIR"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="$LOG_DIR/ralph_$TIMESTAMP.log"
+
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+log "Starting Ralph Wiggum loop"
+log "Max iterations: $MAX_ITERATIONS"
+log "Prompt file: $PROMPT_FILE"
+log "Log file: $LOG_FILE"
+
+for ((i=1; i<=$MAX_ITERATIONS; i++)); do
+  log "=== Iteration $i of $MAX_ITERATIONS ==="
+
+  ITER_LOG="$LOG_DIR/iteration_${i}_$TIMESTAMP.log"
+
+  # Run Claude with fresh context
+  claude -p "$(cat $PROMPT_FILE)" --output-format text > "$ITER_LOG" 2>&1 || true
+
+  # Check result
+  if grep -q "<promise>PHASE_COMPLETE</promise>" "$ITER_LOG"; then
+    log "PHASE COMPLETED!"
+    exit 0
+  fi
+
+  if grep -q "<promise>PROJECT_COMPLETE</promise>" "$ITER_LOG"; then
+    log "PROJECT COMPLETED!"
+    exit 0
+  fi
+
+  # Check for common stuck patterns
+  if grep -q "I'm stuck\|cannot proceed\|need clarification" "$ITER_LOG"; then
+    log "WARNING: Possible stuck state detected. Review $ITER_LOG"
+  fi
+
+  log "Iteration $i complete"
+  sleep 2
+done
+
+log "Max iterations reached"
+exit 1
 ```
-
-This requires careful git coordination but can speed up development.
 
 ## Success Indicators
 
 You'll know the Ralph loop is working well when:
-- ✅ Tests are passing consistently
-- ✅ Code quality improves with each iteration
-- ✅ Completion promises are output appropriately
-- ✅ Each phase builds on previous successfully
-- ✅ Documentation stays updated
+- Tests are passing consistently
+- Code quality improves with each iteration
+- Completion promises are output appropriately
+- Each phase builds on previous successfully
+- Git history shows incremental progress
 
-## When to Stop and Manual Debug
+## When to Stop and Debug Manually
 
 Stop the Ralph loop if:
-- ❌ Same error appears >5 iterations in a row
-- ❌ Tests are failing without progress toward fix
-- ❌ Cost exceeds your budget
-- ❌ Circular behavior (repeating same actions)
+- Same error appears >5 iterations in a row (check logs)
+- Tests are failing without progress toward fix
+- Circular behavior (check git log for repeated similar commits)
 
-Manual debugging is faster for persistent issues.
+Manual debugging is faster for persistent issues. Add findings to PROMPT.md to help future iterations.
 
 ---
 
-## Quick Reference Commands
+## Quick Reference
 
 ```bash
-# Standard Ralph loop
-claude -p "/ralph-loop:ralph-loop --max-iterations 30 --completion-promise 'PHASE_COMPLETE'"
+# Basic Ralph loop
+./ralph.sh 30
 
-# With monitoring (tmux session)
-claude -p "/ralph-loop:ralph-loop --max-iterations 30 --monitor --completion-promise 'PHASE_COMPLETE'"
+# With custom prompt file
+./ralph.sh 30 PROMPT.md
 
-# With verbose output
-claude -p "/ralph-loop:ralph-loop --max-iterations 30 --verbose --completion-promise 'PHASE_COMPLETE'"
+# With logging to file
+./ralph.sh 30 2>&1 | tee ralph.log
 
-# Custom timeout (60 minutes)
-claude -p "/ralph-loop:ralph-loop --max-iterations 30 --timeout 60 --completion-promise 'PHASE_COMPLETE'"
+# In tmux session (recommended for long runs)
+tmux new -s ralph './ralph.sh 30'
 ```
 
 Good luck! The Ralph loop should autonomously build your scraper according to the specifications in PROMPT.md.
