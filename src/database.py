@@ -351,8 +351,16 @@ class Database:
             query = query.order_by(Technology.scraped_at.desc())
             query = query.offset(offset).limit(limit)
 
-            # Detach results from session
+            # Execute query and make transient copies so they can be used outside session
             results = query.all()
+            from sqlalchemy.orm import make_transient
+            for obj in results:
+                # Access all attributes to load them before detaching
+                _ = obj.id, obj.university, obj.tech_id, obj.title, obj.description
+                _ = obj.url, obj.top_field, obj.subfield, obj.keywords
+                _ = obj.patent_geography, obj.scraped_at
+                session.expunge(obj)
+                make_transient(obj)
             return results
 
     def get_technology_by_id(self, tech_id: int) -> Optional[Technology]:

@@ -1,113 +1,90 @@
-"""Georgia Tech technology licensing scraper using Playwright."""
+"""Georgia Tech Flintbox scraper using their API."""
 
 import asyncio
 import re
 from typing import AsyncIterator, Optional
-from urllib.parse import urljoin, urlparse, parse_qs
 
-from playwright.async_api import async_playwright, Page, Browser
+import aiohttp
 from loguru import logger
 
 from .base import BaseScraper, Technology
 
 
 class GatechScraper(BaseScraper):
-    """Scraper for Georgia Tech's technology licensing site."""
+    """Scraper for Georgia Tech's Flintbox technology portal."""
 
-    BASE_URL = "https://licensing.research.gatech.edu"
-    TECHNOLOGIES_URL = f"{BASE_URL}/technology-licensing"
+    BASE_URL = "https://gatech.flintbox.com"
+    API_URL = "https://gatech.flintbox.com/api/v1/technologies"
+    ORGANIZATION_ID = "186"
+    ACCESS_KEY = "803ec38e-0986-4610-af3c-fbb9084a1a43"
 
-    def __init__(self, delay_seconds: float = 1.0):
+    def __init__(self, delay_seconds: float = 0.5):
         super().__init__(
             university_code="gatech",
             base_url=self.BASE_URL,
             delay_seconds=delay_seconds,
         )
-        self._browser: Optional[Browser] = None
-        self._page: Optional[Page] = None
+        self._session: Optional[aiohttp.ClientSession] = None
 
     @property
     def name(self) -> str:
-        return "Georgia Tech Technology Licensing"
+        return "Georgia Tech Flintbox"
 
-    async def _init_browser(self) -> None:
-        """Initialize Playwright browser."""
-        if self._browser is None:
-            playwright = await async_playwright().start()
-            self._browser = await playwright.chromium.launch(headless=True)
-            self._page = await self._browser.new_page()
-            await self._page.set_viewport_size({"width": 1920, "height": 1080})
-            logger.debug("Browser initialized for Georgia Tech")
+    async def _init_session(self) -> None:
+        """Initialize aiohttp session."""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            logger.debug("HTTP session initialized for Georgia Tech")
 
-    async def _close_browser(self) -> None:
-        """Close Playwright browser."""
-        if self._page:
-            await self._page.close()
-            self._page = None
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-            logger.debug("Browser closed")
+    async def _close_session(self) -> None:
+        """Close aiohttp session."""
+        if self._session:
+            await self._session.close()
+            self._session = None
+            logger.debug("HTTP session closed")
 
     async def _get_total_pages(self) -> int:
-        """Get the total number of pages from pagination."""
-        if not self._page:
-            await self._init_browser()
+        """Get total number of pages from API."""
+        await self._init_session()
 
-        await self._page.goto(self.TECHNOLOGIES_URL, wait_until="networkidle")
+        params = {
+            "organizationId": self.ORGANIZATION_ID,
+            "organizationAccessKey": self.ACCESS_KEY,
+            "page": 1,
+            "query": "",
+        }
 
         try:
-            # Look for pagination links
-            pagination = await self._page.query_selector_all(
-                ".pager a, .pagination a, nav.pager a, [class*='pager'] a"
-            )
-
-            if pagination:
-                page_numbers = []
-                for link in pagination:
-                    text = await link.inner_text()
-                    text = text.strip()
-                    if text.isdigit():
-                        page_numbers.append(int(text))
-                    # Also check href for page numbers
-                    href = await link.get_attribute("href")
-                    if href:
-                        match = re.search(r"page=(\d+)", href)
-                        if match:
-                            page_numbers.append(int(match.group(1)) + 1)  # 0-indexed to 1-indexed
-
-                if page_numbers:
-                    return max(page_numbers)
-
-            # Look for "last" link
-            last_link = await self._page.query_selector(
-                ".pager-last a, .pagination .last a, [class*='last'] a"
-            )
-            if last_link:
-                href = await last_link.get_attribute("href")
-                if href:
-                    match = re.search(r"page=(\d+)", href)
-                    if match:
-                        return int(match.group(1)) + 1
-
-            # Default fallback
-            return 20
-
+            async with self._session.get(self.API_URL, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    meta = data.get("meta", {})
+                    total_pages = meta.get("totalPages", 31)
+                    logger.debug(f"Georgia Tech has {total_pages} pages")
+                    return total_pages
+                else:
+                    logger.warning(f"API returned status {response.status}")
+                    return 31  # Default fallback
         except Exception as e:
             logger.warning(f"Could not determine total pages: {e}")
-            return 20
+            return 31
 
     async def scrape(self) -> AsyncIterator[Technology]:
-        """Scrape all technologies from Georgia Tech."""
+        """Scrape all technologies from Georgia Tech Flintbox."""
         try:
-            await self._init_browser()
+            await self._init_session()
 
             total_pages = await self._get_total_pages()
-            self.log_progress(f"Starting scrape of approximately {total_pages} pages")
+            self.log_progress(f"Starting scrape of {total_pages} pages")
 
             for page_num in range(1, total_pages + 1):
                 try:
                     technologies = await self.scrape_page(page_num)
+
+                    if not technologies:
+                        self.log_progress(f"No technologies on page {page_num}, stopping")
+                        break
+
                     for tech in technologies:
                         self._tech_count += 1
                         yield tech
@@ -131,193 +108,127 @@ class GatechScraper(BaseScraper):
             )
 
         finally:
-            await self._close_browser()
+            await self._close_session()
 
     async def scrape_page(self, page_num: int) -> list[Technology]:
-        """Scrape a single page of technologies."""
-        if not self._page:
-            await self._init_browser()
+        """Scrape a single page of technologies from the API."""
+        await self._init_session()
 
-        # Georgia Tech uses 0-indexed pages in URL
-        url = f"{self.TECHNOLOGIES_URL}?page={page_num - 1}" if page_num > 1 else self.TECHNOLOGIES_URL
-        logger.debug(f"Scraping page {page_num}: {url}")
+        params = {
+            "organizationId": self.ORGANIZATION_ID,
+            "organizationAccessKey": self.ACCESS_KEY,
+            "page": page_num,
+            "query": "",
+        }
+
+        logger.debug(f"Scraping page {page_num}")
 
         try:
-            await self._page.goto(url, wait_until="networkidle", timeout=30000)
+            async with self._session.get(self.API_URL, params=params) as response:
+                if response.status != 200:
+                    self.log_error(f"API returned status {response.status}")
+                    return []
 
-            # Wait for content to load
-            await self._page.wait_for_selector(
-                ".view-content, .views-row, article, .node, .technology-item",
-                timeout=15000,
-            )
+                data = await response.json()
+                items = data.get("data", [])
 
-            await asyncio.sleep(0.5)
-
-            technologies = []
-
-            # Try different selectors for technology items
-            items = await self._page.query_selector_all(
-                ".views-row, .node--type-technology, article.node, "
-                ".technology-item, .view-content > div"
-            )
-
-            if not items:
-                # Fallback to more generic selectors
-                items = await self._page.query_selector_all(
-                    ".view-content article, .view-content .node"
-                )
-
-            for item in items:
-                try:
-                    tech = await self._parse_item(item)
+                technologies = []
+                for item in items:
+                    tech = self._parse_api_item(item)
                     if tech:
                         technologies.append(tech)
-                except Exception as e:
-                    logger.debug(f"Error parsing item: {e}")
-                    continue
 
-            return technologies
+                return technologies
 
         except Exception as e:
-            self.log_error(f"Error loading page {page_num}", e)
+            self.log_error(f"Error fetching page {page_num}", e)
             return []
 
-    async def _parse_item(self, item) -> Optional[Technology]:
-        """Parse a technology item element into a Technology object."""
+    def _parse_api_item(self, item: dict) -> Optional[Technology]:
+        """Parse a technology item from the API response."""
         try:
-            # Get title and link
-            title_elem = await item.query_selector(
-                "h2 a, h3 a, .field--name-title a, .node-title a, a[href*='/technologies/']"
-            )
+            attrs = item.get("attributes", {})
 
-            if not title_elem:
-                title_elem = await item.query_selector("h2, h3, .field--name-title, .node-title")
-
-            if not title_elem:
-                return None
-
-            title = await title_elem.inner_text()
-            title = title.strip()
-
+            title = attrs.get("name", "").strip()
             if not title:
                 return None
 
-            # Get URL
-            link = await item.query_selector("a[href*='/technologies/'], h2 a, h3 a")
-            url = ""
-            if link:
-                href = await link.get_attribute("href")
-                url = urljoin(self.BASE_URL, href) if href else ""
+            tech_id = item.get("id", "")
+            uuid = attrs.get("uuid", "")
 
-            # Extract tech_id from URL or generate one
-            tech_id = ""
-            if url:
-                # URL might be like /technologies/machine-learning-system or /node/123
-                path = urlparse(url).path
-                tech_id = path.rstrip("/").split("/")[-1]
+            # Build description from key points
+            key_points = []
+            for i in range(1, 4):
+                kp = attrs.get(f"keyPoint{i}")
+                if kp:
+                    key_points.append(kp.strip())
 
-            if not tech_id:
-                tech_id = re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50]
+            description = " | ".join(key_points) if key_points else None
 
-            # Get description/summary
-            desc_elem = await item.query_selector(
-                ".field--name-body, .field--name-field-summary, "
-                ".summary, .description, .teaser, p"
-            )
-            description = ""
-            if desc_elem:
-                description = await desc_elem.inner_text()
-                description = description.strip()
+            # Build URL
+            url = f"{self.BASE_URL}/technologies/{uuid}" if uuid else ""
 
-            # Get categories/tags
-            keywords = []
-            tag_elems = await item.query_selector_all(
-                ".field--name-field-category a, .field--name-field-tags a, "
-                ".taxonomy-term, .tag, [class*='category']"
-            )
-            for tag_elem in tag_elems:
-                tag_text = await tag_elem.inner_text()
-                tag_text = tag_text.strip()
-                if tag_text:
-                    keywords.append(tag_text)
-
-            # Get inventors if available
-            innovators = []
-            inventor_elem = await item.query_selector(
-                ".field--name-field-inventors, .field--name-field-researchers, "
-                "[class*='inventor'], [class*='researcher']"
-            )
-            if inventor_elem:
-                inventor_text = await inventor_elem.inner_text()
-                innovators = [i.strip() for i in re.split(r"[,;]", inventor_text) if i.strip()]
+            # Get published date
+            published_on = attrs.get("publishedOn")
 
             raw_data = {
+                "id": tech_id,
+                "uuid": uuid,
                 "title": title,
-                "description": description,
-                "url": url,
-                "keywords": keywords,
-                "innovators": innovators,
-                "source_page": self._page.url if self._page else "",
+                "key_points": key_points,
+                "published_on": published_on,
+                "featured": attrs.get("featured", False),
+                "image_url": attrs.get("primaryImageSmallUrl"),
             }
 
             return Technology(
                 university="gatech",
-                tech_id=tech_id,
+                tech_id=tech_id or uuid or re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50],
                 title=title,
                 url=url,
                 description=description,
-                keywords=keywords if keywords else None,
-                innovators=innovators if innovators else None,
                 raw_data=raw_data,
             )
 
         except Exception as e:
-            logger.debug(f"Error parsing item element: {e}")
+            logger.debug(f"Error parsing API item: {e}")
             return None
 
-    async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """Scrape detailed information from a technology's detail page."""
-        if not self._page:
-            await self._init_browser()
+    async def scrape_technology_detail(self, tech_uuid: str) -> Optional[dict]:
+        """
+        Scrape detailed information for a specific technology.
+
+        Args:
+            tech_uuid: The UUID of the technology
+
+        Returns:
+            Dictionary with detailed technology information
+        """
+        await self._init_session()
+
+        detail_url = f"{self.BASE_URL}/api/v1/technologies/{tech_uuid}"
+        params = {
+            "organizationId": self.ORGANIZATION_ID,
+            "organizationAccessKey": self.ACCESS_KEY,
+        }
 
         try:
-            await self._page.goto(url, wait_until="networkidle", timeout=30000)
+            async with self._session.get(detail_url, params=params) as response:
+                if response.status != 200:
+                    return None
 
-            detail = {}
-
-            # Get full description
-            desc_elem = await self._page.query_selector(
-                ".field--name-body, .node__content, article .content"
-            )
-            if desc_elem:
-                detail["full_description"] = await desc_elem.inner_text()
-
-            # Get inventors
-            inventors_elem = await self._page.query_selector(
-                ".field--name-field-inventors, [class*='inventor']"
-            )
-            if inventors_elem:
-                text = await inventors_elem.inner_text()
-                detail["inventors"] = [i.strip() for i in re.split(r"[,;]", text) if i.strip()]
-
-            # Get patent info
-            patent_elem = await self._page.query_selector(
-                ".field--name-field-patent, [class*='patent']"
-            )
-            if patent_elem:
-                detail["patent_info"] = await patent_elem.inner_text()
-
-            # Get categories
-            cat_elems = await self._page.query_selector_all(
-                ".field--name-field-category a, .taxonomy-term"
-            )
-            if cat_elems:
-                detail["categories"] = []
-                for elem in cat_elems:
-                    detail["categories"].append(await elem.inner_text())
-
-            return detail
+                data = await response.json()
+                return data.get("data", {}).get("attributes", {})
 
         except Exception as e:
-            logger.debug(f"Error scraping detail page {url}: {e}")
+            logger.debug(f"Error fetching technology detail: {e}")
             return None
+
+    # Backwards compatibility methods
+    async def _init_browser(self) -> None:
+        """Backwards compatibility - initializes HTTP session instead."""
+        await self._init_session()
+
+    async def _close_browser(self) -> None:
+        """Backwards compatibility - closes HTTP session instead."""
+        await self._close_session()

@@ -37,9 +37,9 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
     UniversityConfig(
         code="gatech",
         name="Georgia Institute of Technology",
-        base_url="https://licensing.research.gatech.edu",
+        base_url="https://gatech.flintbox.com",
         scraper_class="GatechScraper",
-        delay_seconds=1.0,
+        delay_seconds=0.5,
     ),
     UniversityConfig(
         code="uga",

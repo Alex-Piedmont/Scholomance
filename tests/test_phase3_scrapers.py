@@ -22,13 +22,13 @@ class TestGatechScraper:
         """Test Georgia Tech scraper can be initialized."""
         scraper = GatechScraper()
         assert scraper.university_code == "gatech"
-        assert scraper.name == "Georgia Tech Technology Licensing"
+        assert scraper.name == "Georgia Tech Flintbox"
 
     def test_scraper_urls(self):
         """Test Georgia Tech scraper URLs."""
         scraper = GatechScraper()
-        assert "licensing.research.gatech.edu" in scraper.BASE_URL
-        assert "/technology-licensing" in scraper.TECHNOLOGIES_URL
+        assert "gatech.flintbox.com" in scraper.BASE_URL
+        assert "gatech.flintbox.com" in scraper.API_URL
 
     def test_scraper_delay_configuration(self):
         """Test scraper delay can be configured."""
@@ -50,20 +50,21 @@ class TestGatechScraper:
         assert True
 
     @pytest.mark.asyncio
-    async def test_close_browser_when_none(self):
-        """Test close_browser handles None gracefully."""
+    async def test_close_session_when_none(self):
+        """Test close_session handles None gracefully."""
         scraper = GatechScraper()
-        scraper._browser = None
-        scraper._page = None
-        await scraper._close_browser()
-        assert scraper._browser is None
+        scraper._session = None
+        await scraper._close_session()
+        assert scraper._session is None
 
     @pytest.mark.asyncio
     async def test_scrape_page_error_handling(self):
         """Test scrape_page handles errors gracefully."""
         scraper = GatechScraper()
-        scraper._page = AsyncMock()
-        scraper._page.goto = AsyncMock(side_effect=Exception("Network error"))
+        # Mock the session to raise an error
+        mock_session = AsyncMock()
+        mock_session.get = AsyncMock(side_effect=Exception("Network error"))
+        scraper._session = mock_session
 
         techs = await scraper.scrape_page(1)
         assert techs == []
