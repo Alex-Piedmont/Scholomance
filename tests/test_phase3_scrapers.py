@@ -93,17 +93,17 @@ class TestUGAScraper:
         """Test UGA scraper URLs."""
         scraper = UGAScraper()
         assert "uga.flintbox.com" in scraper.BASE_URL
-        assert "/technologies" in scraper.TECHNOLOGIES_URL
+        assert "uga.flintbox.com" in scraper.API_URL
 
     def test_scraper_delay_configuration(self):
         """Test scraper delay can be configured."""
         scraper = UGAScraper(delay_seconds=2.5)
         assert scraper.delay_seconds == 2.5
 
-    def test_scraper_default_delay_higher(self):
-        """Test UGA scraper has higher default delay for React app."""
+    def test_scraper_default_delay(self):
+        """Test UGA scraper has default delay configured."""
         scraper = UGAScraper()
-        assert scraper.delay_seconds >= 1.0
+        assert scraper.delay_seconds == 0.5
 
     def test_api_data_initialized(self):
         """Test API data list is initialized."""
@@ -111,22 +111,23 @@ class TestUGAScraper:
         assert scraper._api_data == []
 
     @pytest.mark.asyncio
-    async def test_close_browser_when_none(self):
-        """Test close_browser handles None gracefully."""
+    async def test_close_session_when_none(self):
+        """Test close_session handles None gracefully."""
         scraper = UGAScraper()
-        scraper._browser = None
-        scraper._page = None
-        await scraper._close_browser()
-        assert scraper._browser is None
+        scraper._session = None
+        await scraper._close_session()
+        assert scraper._session is None
 
     def test_parse_api_item_valid(self):
         """Test parsing valid API item."""
         scraper = UGAScraper()
         item = {
             "id": "123",
-            "title": "Test Technology",
-            "description": "A test description",
-            "url": "https://uga.flintbox.com/technologies/123",
+            "attributes": {
+                "uuid": "abc-123",
+                "name": "Test Technology",
+                "keyPoint1": "A test description",
+            },
         }
 
         tech = scraper._parse_api_item(item)
@@ -140,7 +141,9 @@ class TestUGAScraper:
         """Test parsing API item with minimal data."""
         scraper = UGAScraper()
         item = {
-            "title": "Minimal Tech",
+            "attributes": {
+                "name": "Minimal Tech",
+            },
         }
 
         tech = scraper._parse_api_item(item)
@@ -153,52 +156,64 @@ class TestUGAScraper:
         scraper = UGAScraper()
         item = {
             "id": "123",
-            "title": "",
+            "attributes": {
+                "name": "",
+            },
         }
 
         tech = scraper._parse_api_item(item)
         assert tech is None
 
-    def test_parse_api_item_with_html_description(self):
-        """Test parsing API item strips HTML from description."""
+    def test_parse_api_item_with_key_points(self):
+        """Test parsing API item builds description from key points."""
         scraper = UGAScraper()
         item = {
-            "title": "Test",
-            "description": "<p>This is a <strong>test</strong></p>",
+            "attributes": {
+                "name": "Test",
+                "keyPoint1": "First point",
+                "keyPoint2": "Second point",
+                "keyPoint3": "Third point",
+            },
         }
 
         tech = scraper._parse_api_item(item)
 
         assert tech is not None
-        assert "<" not in tech.description
-        assert ">" not in tech.description
+        assert "First point" in tech.description
+        assert "Second point" in tech.description
+        assert "Third point" in tech.description
 
-    def test_parse_api_item_keywords_string(self):
-        """Test parsing API item with keywords as string."""
+    def test_parse_api_item_with_uuid(self):
+        """Test parsing API item builds URL from UUID."""
         scraper = UGAScraper()
         item = {
-            "title": "Test",
-            "keywords": "keyword1, keyword2, keyword3",
+            "id": "123",
+            "attributes": {
+                "name": "Test",
+                "uuid": "abc-def-123",
+            },
         }
 
         tech = scraper._parse_api_item(item)
 
         assert tech is not None
-        assert tech.keywords is not None
-        assert len(tech.keywords) == 3
+        assert "abc-def-123" in tech.url
+        assert tech.url == "https://uga.flintbox.com/technologies/abc-def-123"
 
-    def test_parse_api_item_keywords_list(self):
-        """Test parsing API item with keywords as list."""
+    def test_parse_api_item_with_published_date(self):
+        """Test parsing API item captures published date."""
         scraper = UGAScraper()
         item = {
-            "title": "Test",
-            "keywords": ["keyword1", "keyword2"],
+            "attributes": {
+                "name": "Test",
+                "publishedOn": "2024-01-15",
+            },
         }
 
         tech = scraper._parse_api_item(item)
 
         assert tech is not None
-        assert tech.keywords == ["keyword1", "keyword2"]
+        assert tech.raw_data["published_on"] == "2024-01-15"
 
 
 class TestScraperRegistry:

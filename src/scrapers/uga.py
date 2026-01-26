@@ -1,233 +1,193 @@
-"""UGA Flintbox technology scraper using Playwright."""
+"""UGA Flintbox scraper using their API."""
 
 import asyncio
-import json
 import re
 from typing import AsyncIterator, Optional
-from urllib.parse import urljoin
 
-from playwright.async_api import async_playwright, Page, Browser, Route
+import aiohttp
 from loguru import logger
 
 from .base import BaseScraper, Technology
 
 
 class UGAScraper(BaseScraper):
-    """Scraper for UGA's Flintbox technology listings.
-
-    Flintbox is a React-based platform that loads data via API calls.
-    This scraper intercepts those API calls when possible, falling back
-    to DOM scraping when needed.
-    """
+    """Scraper for UGA's Flintbox technology portal."""
 
     BASE_URL = "https://uga.flintbox.com"
-    TECHNOLOGIES_URL = f"{BASE_URL}/technologies"
-    API_URL = f"{BASE_URL}/api"
+    API_URL = "https://uga.flintbox.com/api/v1/technologies"
+    ORGANIZATION_ID = "11"
+    ACCESS_KEY = "28c03bda-3676-41d6-bf18-22101ac1dbc5"
 
-    def __init__(self, delay_seconds: float = 1.5):
+    def __init__(self, delay_seconds: float = 0.5):
         super().__init__(
             university_code="uga",
             base_url=self.BASE_URL,
             delay_seconds=delay_seconds,
         )
-        self._browser: Optional[Browser] = None
-        self._page: Optional[Page] = None
-        self._api_data: list[dict] = []
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._api_data: list[dict] = []  # For backwards compatibility
 
     @property
     def name(self) -> str:
         return "UGA Flintbox"
 
-    async def _init_browser(self) -> None:
-        """Initialize Playwright browser."""
-        if self._browser is None:
-            playwright = await async_playwright().start()
-            self._browser = await playwright.chromium.launch(headless=True)
-            self._page = await self._browser.new_page()
-            await self._page.set_viewport_size({"width": 1920, "height": 1080})
+    async def _init_session(self) -> None:
+        """Initialize aiohttp session."""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            logger.debug("HTTP session initialized for UGA")
 
-            # Set up request interception to capture API responses
-            await self._page.route("**/api/**", self._handle_api_route)
+    async def _close_session(self) -> None:
+        """Close aiohttp session."""
+        if self._session:
+            await self._session.close()
+            self._session = None
+            logger.debug("HTTP session closed")
 
-            logger.debug("Browser initialized for UGA Flintbox")
+    async def _get_total_pages(self) -> int:
+        """Get total number of pages from API."""
+        await self._init_session()
 
-    async def _handle_api_route(self, route: Route) -> None:
-        """Intercept API requests to capture technology data."""
-        response = await route.fetch()
-        try:
-            if "technologies" in route.request.url or "listings" in route.request.url:
-                body = await response.text()
-                try:
-                    data = json.loads(body)
-                    if isinstance(data, list):
-                        self._api_data.extend(data)
-                    elif isinstance(data, dict) and "data" in data:
-                        self._api_data.extend(data["data"])
-                    elif isinstance(data, dict) and "technologies" in data:
-                        self._api_data.extend(data["technologies"])
-                except json.JSONDecodeError:
-                    pass
-        except Exception as e:
-            logger.debug(f"Error handling API route: {e}")
-
-        await route.fulfill(response=response)
-
-    async def _close_browser(self) -> None:
-        """Close Playwright browser."""
-        if self._page:
-            await self._page.close()
-            self._page = None
-        if self._browser:
-            await self._browser.close()
-            self._browser = None
-            logger.debug("Browser closed")
-
-    async def _scroll_to_load_all(self) -> None:
-        """Scroll the page to trigger lazy loading of all items."""
-        if not self._page:
-            return
+        params = {
+            "organizationId": self.ORGANIZATION_ID,
+            "organizationAccessKey": self.ACCESS_KEY,
+            "page": 1,
+            "query": "",
+        }
 
         try:
-            # Get initial height
-            last_height = await self._page.evaluate("document.body.scrollHeight")
-
-            while True:
-                # Scroll to bottom
-                await self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await asyncio.sleep(1)
-
-                # Calculate new height
-                new_height = await self._page.evaluate("document.body.scrollHeight")
-
-                if new_height == last_height:
-                    break
-
-                last_height = new_height
-
-                # Safety limit
-                if self._tech_count > 500:
-                    break
-
+            async with self._session.get(self.API_URL, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    meta = data.get("meta", {})
+                    total_pages = meta.get("totalPages", 9)
+                    logger.debug(f"UGA has {total_pages} pages")
+                    return total_pages
+                else:
+                    logger.warning(f"API returned status {response.status}")
+                    return 9  # Default fallback
         except Exception as e:
-            logger.debug(f"Error during scroll: {e}")
+            logger.warning(f"Could not determine total pages: {e}")
+            return 9
 
     async def scrape(self) -> AsyncIterator[Technology]:
         """Scrape all technologies from UGA Flintbox."""
         try:
-            await self._init_browser()
-            self._api_data = []
+            await self._init_session()
 
-            self.log_progress("Loading UGA Flintbox technologies page")
+            total_pages = await self._get_total_pages()
+            self.log_progress(f"Starting scrape of {total_pages} pages")
 
-            await self._page.goto(self.TECHNOLOGIES_URL, wait_until="networkidle", timeout=60000)
+            for page_num in range(1, total_pages + 1):
+                try:
+                    technologies = await self.scrape_page(page_num)
 
-            # Wait for React to render
-            await asyncio.sleep(2)
+                    if not technologies:
+                        self.log_progress(f"No technologies on page {page_num}, stopping")
+                        break
 
-            # Try to find and click "Load More" or scroll to load all
-            await self._load_all_technologies()
-
-            # First try to use intercepted API data
-            if self._api_data:
-                self.log_progress(f"Found {len(self._api_data)} technologies via API")
-                for item in self._api_data:
-                    tech = self._parse_api_item(item)
-                    if tech:
+                    for tech in technologies:
                         self._tech_count += 1
                         yield tech
-            else:
-                # Fall back to DOM scraping
-                self.log_progress("Falling back to DOM scraping")
-                async for tech in self._scrape_from_dom():
-                    yield tech
 
-            self.log_progress(f"Completed scraping: {self._tech_count} technologies")
+                    self._page_count += 1
+                    if page_num % 3 == 0:
+                        self.log_progress(
+                            f"Scraped page {page_num}/{total_pages}, "
+                            f"found {self._tech_count} technologies"
+                        )
+
+                    await self.delay()
+
+                except Exception as e:
+                    self.log_error(f"Error scraping page {page_num}", e)
+                    continue
+
+            self.log_progress(
+                f"Completed scraping: {self._tech_count} technologies "
+                f"from {self._page_count} pages"
+            )
 
         finally:
-            await self._close_browser()
+            await self._close_session()
 
-    async def _load_all_technologies(self) -> None:
-        """Load all technologies by clicking load more or scrolling."""
-        if not self._page:
-            return
+    async def scrape_page(self, page_num: int) -> list[Technology]:
+        """Scrape a single page of technologies from the API."""
+        await self._init_session()
+
+        params = {
+            "organizationId": self.ORGANIZATION_ID,
+            "organizationAccessKey": self.ACCESS_KEY,
+            "page": page_num,
+            "query": "",
+        }
+
+        logger.debug(f"Scraping page {page_num}")
 
         try:
-            # Look for "Load More" button
-            load_more_attempts = 0
-            max_attempts = 50
+            async with self._session.get(self.API_URL, params=params) as response:
+                if response.status != 200:
+                    self.log_error(f"API returned status {response.status}")
+                    return []
 
-            while load_more_attempts < max_attempts:
-                load_more = await self._page.query_selector(
-                    "button:has-text('Load More'), "
-                    "button:has-text('Show More'), "
-                    "a:has-text('Load More'), "
-                    "[class*='load-more'], "
-                    "[class*='show-more']"
-                )
+                data = await response.json()
+                items = data.get("data", [])
 
-                if load_more:
-                    try:
-                        await load_more.click()
-                        await asyncio.sleep(1)
-                        load_more_attempts += 1
-                    except Exception:
-                        break
-                else:
-                    break
+                technologies = []
+                for item in items:
+                    tech = self._parse_api_item(item)
+                    if tech:
+                        technologies.append(tech)
 
-            # Also try scrolling
-            await self._scroll_to_load_all()
+                return technologies
 
         except Exception as e:
-            logger.debug(f"Error loading all technologies: {e}")
+            self.log_error(f"Error fetching page {page_num}", e)
+            return []
 
     def _parse_api_item(self, item: dict) -> Optional[Technology]:
-        """Parse a technology item from API response."""
+        """Parse a technology item from the API response."""
         try:
-            tech_id = str(item.get("id", item.get("slug", "")))
-            title = item.get("title", item.get("name", ""))
+            attrs = item.get("attributes", {})
 
+            title = attrs.get("name", "").strip()
             if not title:
                 return None
 
-            url = item.get("url", "")
-            if not url and tech_id:
-                url = f"{self.BASE_URL}/technologies/{tech_id}"
+            tech_id = item.get("id", "")
+            uuid = attrs.get("uuid", "")
 
-            description = item.get("description", item.get("summary", item.get("abstract", "")))
+            # Build description from key points
+            key_points = []
+            for i in range(1, 4):
+                kp = attrs.get(f"keyPoint{i}")
+                if kp:
+                    key_points.append(kp.strip())
 
-            # Clean HTML from description if present
-            if description:
-                description = re.sub(r"<[^>]+>", "", description)
-                description = description.strip()
+            description = " | ".join(key_points) if key_points else None
 
-            keywords = item.get("keywords", item.get("tags", []))
-            if isinstance(keywords, str):
-                keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+            # Build URL
+            url = f"{self.BASE_URL}/technologies/{uuid}" if uuid else ""
 
-            innovators = item.get("inventors", item.get("researchers", item.get("contacts", [])))
-            if isinstance(innovators, str):
-                innovators = [i.strip() for i in innovators.split(",") if i.strip()]
-            elif isinstance(innovators, list):
-                # Handle list of dicts with name field
-                if innovators and isinstance(innovators[0], dict):
-                    innovators = [i.get("name", str(i)) for i in innovators]
+            # Get published date
+            published_on = attrs.get("publishedOn")
 
             raw_data = {
-                "original": item,
+                "id": tech_id,
+                "uuid": uuid,
                 "title": title,
-                "description": description,
-                "url": url,
+                "key_points": key_points,
+                "published_on": published_on,
+                "featured": attrs.get("featured", False),
+                "image_url": attrs.get("primaryImageSmallUrl"),
             }
 
             return Technology(
                 university="uga",
-                tech_id=tech_id,
+                tech_id=tech_id or uuid or re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50],
                 title=title,
                 url=url,
                 description=description,
-                keywords=keywords if keywords else None,
-                innovators=innovators if innovators else None,
                 raw_data=raw_data,
             )
 
@@ -235,159 +195,41 @@ class UGAScraper(BaseScraper):
             logger.debug(f"Error parsing API item: {e}")
             return None
 
-    async def _scrape_from_dom(self) -> AsyncIterator[Technology]:
-        """Scrape technologies from the DOM when API interception fails."""
-        if not self._page:
-            return
-
-        # Wait for items to load
-        await self._page.wait_for_selector(
-            ".technology-card, .listing-card, [class*='technology'], "
-            "[class*='listing'], article, .card",
-            timeout=15000,
-        )
-
-        items = await self._page.query_selector_all(
-            ".technology-card, .listing-card, [class*='technology-item'], "
-            "[class*='listing-item'], article.card, .card"
-        )
-
-        for item in items:
-            tech = await self._parse_dom_item(item)
-            if tech:
-                self._tech_count += 1
-                yield tech
-
-    async def _parse_dom_item(self, item) -> Optional[Technology]:
-        """Parse a technology item from DOM element."""
-        try:
-            # Get title and link
-            title_elem = await item.query_selector(
-                "h2 a, h3 a, .title a, [class*='title'] a, a[href*='/technologies/']"
-            )
-
-            if not title_elem:
-                title_elem = await item.query_selector("h2, h3, .title, [class*='title']")
-
-            if not title_elem:
-                return None
-
-            title = await title_elem.inner_text()
-            title = title.strip()
-
-            if not title:
-                return None
-
-            # Get URL
-            link = await item.query_selector("a[href*='/technologies/']")
-            url = ""
-            if link:
-                href = await link.get_attribute("href")
-                url = urljoin(self.BASE_URL, href) if href else ""
-
-            # Extract tech_id from URL
-            tech_id = ""
-            if url:
-                match = re.search(r"/technologies/([^/?]+)", url)
-                if match:
-                    tech_id = match.group(1)
-
-            if not tech_id:
-                tech_id = re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50]
-
-            # Get description
-            desc_elem = await item.query_selector(
-                ".description, .summary, .abstract, p, [class*='description']"
-            )
-            description = ""
-            if desc_elem:
-                description = await desc_elem.inner_text()
-                description = description.strip()
-
-            # Get tags/keywords
-            keywords = []
-            tag_elems = await item.query_selector_all(
-                ".tag, .keyword, [class*='tag'], [class*='category']"
-            )
-            for tag_elem in tag_elems:
-                tag_text = await tag_elem.inner_text()
-                if tag_text.strip():
-                    keywords.append(tag_text.strip())
-
-            raw_data = {
-                "title": title,
-                "description": description,
-                "url": url,
-                "keywords": keywords,
-                "source_page": self._page.url if self._page else "",
-            }
-
-            return Technology(
-                university="uga",
-                tech_id=tech_id,
-                title=title,
-                url=url,
-                description=description,
-                keywords=keywords if keywords else None,
-                raw_data=raw_data,
-            )
-
-        except Exception as e:
-            logger.debug(f"Error parsing DOM item: {e}")
-            return None
-
-    async def scrape_page(self, page_num: int) -> list[Technology]:
+    async def scrape_technology_detail(self, tech_uuid: str) -> Optional[dict]:
         """
-        Scrape a single page - for Flintbox this is less meaningful
-        since it uses infinite scroll, but implemented for interface compatibility.
-        """
-        # Flintbox doesn't have traditional pagination
-        # This method exists for interface compatibility
-        if page_num == 1:
-            technologies = []
-            async for tech in self.scrape():
-                technologies.append(tech)
-            return technologies
-        return []
+        Scrape detailed information for a specific technology.
 
-    async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """Scrape detailed information from a technology's detail page."""
-        if not self._page:
-            await self._init_browser()
+        Args:
+            tech_uuid: The UUID of the technology
+
+        Returns:
+            Dictionary with detailed technology information
+        """
+        await self._init_session()
+
+        detail_url = f"{self.BASE_URL}/api/v1/technologies/{tech_uuid}"
+        params = {
+            "organizationId": self.ORGANIZATION_ID,
+            "organizationAccessKey": self.ACCESS_KEY,
+        }
 
         try:
-            await self._page.goto(url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(1)  # Wait for React
+            async with self._session.get(detail_url, params=params) as response:
+                if response.status != 200:
+                    return None
 
-            detail = {}
-
-            # Get full description
-            desc_elem = await self._page.query_selector(
-                ".description, .content, [class*='description'], article"
-            )
-            if desc_elem:
-                detail["full_description"] = await desc_elem.inner_text()
-
-            # Get contact info
-            contact_elem = await self._page.query_selector(
-                ".contact, [class*='contact'], .inventor"
-            )
-            if contact_elem:
-                detail["contact"] = await contact_elem.inner_text()
-
-            # Get categories
-            cat_elems = await self._page.query_selector_all(
-                ".category, .tag, [class*='category']"
-            )
-            if cat_elems:
-                detail["categories"] = []
-                for elem in cat_elems:
-                    text = await elem.inner_text()
-                    if text.strip():
-                        detail["categories"].append(text.strip())
-
-            return detail
+                data = await response.json()
+                return data.get("data", {}).get("attributes", {})
 
         except Exception as e:
-            logger.debug(f"Error scraping detail page {url}: {e}")
+            logger.debug(f"Error fetching technology detail: {e}")
             return None
+
+    # Backwards compatibility methods
+    async def _init_browser(self) -> None:
+        """Backwards compatibility - initializes HTTP session instead."""
+        await self._init_session()
+
+    async def _close_browser(self) -> None:
+        """Backwards compatibility - closes HTTP session instead."""
+        await self._close_session()

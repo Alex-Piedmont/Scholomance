@@ -46,7 +46,7 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         name="University of Georgia",
         base_url="https://uga.flintbox.com",
         scraper_class="UGAScraper",
-        delay_seconds=1.5,  # Slightly slower for React app
+        delay_seconds=0.5,
     ),
 ]
 
