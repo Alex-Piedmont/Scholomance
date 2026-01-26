@@ -91,7 +91,7 @@ pytest tests/ -v --cov=src
 
 ### Project Structure
 ```
-university-tech-scraper/
+Scholomance/
 ├── src/
 │   ├── cli.py              # CLI interface
 │   ├── database.py         # Database models
@@ -147,11 +147,11 @@ SCRAPE_DELAY=1.0  # Seconds between requests
 
 ## Roadmap
 
-### Phase 1: Stanford MVP ✅
-- [x] PostgreSQL schema
-- [x] Stanford scraper with Playwright
-- [x] CLI interface
-- [x] Basic search/filter
+### Phase 1: Stanford MVP
+- [ ] PostgreSQL schema
+- [ ] Stanford scraper with Playwright
+- [ ] CLI interface
+- [ ] Basic search/filter
 
 ### Phase 2: Classification
 - [ ] Claude API integration
