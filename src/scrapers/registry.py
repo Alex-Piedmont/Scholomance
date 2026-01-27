@@ -48,6 +48,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UGAScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="mit",
+        name="Massachusetts Institute of Technology",
+        base_url="https://tlo.mit.edu",
+        scraper_class="MITScraper",
+        delay_seconds=1.0,
+    ),
 ]
 
 

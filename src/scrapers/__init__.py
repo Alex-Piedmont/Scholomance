@@ -4,12 +4,14 @@ from .base import BaseScraper, Technology, RetryConfig, retry_async
 from .stanford import StanfordScraper
 from .gatech import GatechScraper
 from .uga import UGAScraper
+from .mit import MITScraper
 
 # Registry of available scrapers
 SCRAPERS = {
     "stanford": StanfordScraper,
     "gatech": GatechScraper,
     "uga": UGAScraper,
+    "mit": MITScraper,
 }
 
 
@@ -41,6 +43,7 @@ __all__ = [
     "StanfordScraper",
     "GatechScraper",
     "UGAScraper",
+    "MITScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",
