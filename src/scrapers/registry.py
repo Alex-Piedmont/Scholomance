@@ -62,6 +62,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UMichScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="uf",
+        name="University of Florida",
+        base_url="https://ufinnovate.technologypublisher.com",
+        scraper_class="UFScraper",
+        delay_seconds=0.5,
+    ),
 ]
 
 
