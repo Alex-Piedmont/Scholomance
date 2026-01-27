@@ -55,6 +55,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="MITScraper",
         delay_seconds=1.0,
     ),
+    UniversityConfig(
+        code="umich",
+        name="University of Michigan",
+        base_url="https://available-inventions.umich.edu",
+        scraper_class="UMichScraper",
+        delay_seconds=0.5,
+    ),
 ]
 
 
