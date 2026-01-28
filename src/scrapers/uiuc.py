@@ -133,7 +133,7 @@ class UIUCScraper(BaseScraper):
 
                 technologies = []
                 for item in items:
-                    tech = self._parse_api_item(item)
+                    tech = await self._parse_api_item_with_detail(item)
                     if tech:
                         technologies.append(tech)
 
@@ -142,6 +142,80 @@ class UIUCScraper(BaseScraper):
         except Exception as e:
             self.log_error(f"Error fetching page {page_num}", e)
             return []
+
+    async def _parse_api_item_with_detail(self, item: dict) -> Optional[Technology]:
+        """Parse a technology item and fetch additional detail data."""
+        try:
+            attrs = item.get("attributes", {})
+            uuid = attrs.get("uuid", "")
+
+            if not uuid:
+                return self._parse_api_item(item)
+
+            # Fetch detail data for IP status and publications
+            detail = await self.scrape_technology_detail(uuid)
+
+            title = attrs.get("name", "").strip()
+            if not title:
+                return None
+
+            tech_id = item.get("id", "")
+
+            # Build description from key points
+            key_points = []
+            for i in range(1, 4):
+                kp = attrs.get(f"keyPoint{i}")
+                if kp:
+                    key_points.append(kp.strip())
+
+            # Use detail description if available, otherwise key points
+            description = None
+            if detail:
+                other = detail.get("other", "")
+                if other:
+                    description = re.sub(r"<[^>]+>", " ", other)
+                    description = re.sub(r"\s+", " ", description).strip()[:2000]
+
+            if not description:
+                description = " | ".join(key_points) if key_points else None
+
+            # Build URL
+            url = f"{self.BASE_URL}/technologies/{uuid}" if uuid else ""
+
+            # Get published date
+            published_on = attrs.get("publishedOn")
+
+            # Build raw_data with detail fields
+            raw_data = {
+                "id": tech_id,
+                "uuid": uuid,
+                "title": title,
+                "key_points": key_points,
+                "published_on": published_on,
+                "featured": attrs.get("featured", False),
+                "image_url": attrs.get("primaryImageSmallUrl"),
+            }
+
+            # Add detail fields if available
+            if detail:
+                raw_data["ip_status"] = detail.get("ipStatus")
+                raw_data["ip_number"] = detail.get("ipNumber")
+                raw_data["ip_url"] = detail.get("ipUrl")
+                raw_data["ip_date"] = detail.get("ipDate")
+                raw_data["publications"] = detail.get("publications")
+
+            return Technology(
+                university="uiuc",
+                tech_id=tech_id or uuid or re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50],
+                title=title,
+                url=url,
+                description=description,
+                raw_data=raw_data,
+            )
+
+        except Exception as e:
+            logger.debug(f"Error parsing API item with detail: {e}")
+            return self._parse_api_item(item)
 
     def _parse_api_item(self, item: dict) -> Optional[Technology]:
         """Parse a technology item from the API response."""
