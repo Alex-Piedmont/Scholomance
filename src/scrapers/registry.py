@@ -90,6 +90,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UPennScraper",
         delay_seconds=0.2,
     ),
+    UniversityConfig(
+        code="harvard",
+        name="Harvard University",
+        base_url="https://otd.harvard.edu",
+        scraper_class="HarvardScraper",
+        delay_seconds=0.5,
+    ),
 ]
 
 
