@@ -51,14 +51,15 @@ export function DetailPage() {
   // Extract additional data from raw_data
   const rawData = tech.raw_data as Record<string, unknown> | null
   const keyPoints = rawData?.key_points as string[] | undefined
-  const inventors = rawData?.inventors as string[] | undefined
-  const applications = rawData?.applications as string[] | undefined
-  const advantages = rawData?.advantages as string[] | undefined
+  const inventors = Array.isArray(rawData?.inventors) ? rawData.inventors as string[] : undefined
+  const applications = Array.isArray(rawData?.applications) ? rawData.applications as string[] : undefined
+  const advantages = Array.isArray(rawData?.advantages) ? rawData.advantages as string[] : undefined
   const otherHtml = rawData?.other as string | undefined
   const abstractText = rawData?.abstract as string | undefined
   const benefitHtml = rawData?.benefit as string | undefined
   const marketApplicationHtml = rawData?.market_application as string | undefined
-  const publicationsHtml = rawData?.publications as string | undefined
+  const publicationsHtml = typeof rawData?.publications === 'string' ? rawData.publications as string : undefined
+  const publicationsList = Array.isArray(rawData?.publications) ? rawData.publications as Array<{ text?: string; url?: string }> : undefined
   const researchers = rawData?.researchers as Array<{ name?: string; email?: string; expertise?: string }> | undefined
   const documents = rawData?.documents as Array<{ name?: string; url?: string; size?: number }> | undefined
   const contactsList = rawData?.contacts as Array<{ name?: string; email?: string; phone?: string }> | undefined
@@ -326,8 +327,28 @@ export function DetailPage() {
                 </div>
               )}
 
+              {/* Publications (structured list from Stanford) */}
+              {publicationsList && publicationsList.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">Publications</h2>
+                  <ul className="space-y-2">
+                    {publicationsList.map((pub, i) => (
+                      <li key={i} className="text-gray-700 text-sm">
+                        {pub.url ? (
+                          <a href={pub.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                            {pub.text || pub.url}
+                          </a>
+                        ) : (
+                          <span>{pub.text}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Publications (HTML from Flintbox, or plain text from Algolia) */}
-              {(publicationsHtml || (typeof rawData?.publications === 'string' && !publicationsHtml)) && (
+              {!publicationsList?.length && (publicationsHtml || (typeof rawData?.publications === 'string' && !publicationsHtml)) && (
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 mb-3">Publications</h2>
                   {publicationsHtml && publicationsHtml.includes('<') ? (
