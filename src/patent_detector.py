@@ -70,15 +70,18 @@ class PatentDetector:
         r"\bpatent\s+granted\b",
         r"\bgranted\s+patent\b",
         r"\bissued\s+patent\b",
+        r"\bissued\s+us\s+patent\b",
         r"\bpatented\b",
         r"\bUS\s*\d{7,10}\b",  # US patent numbers indicate granted
+        r"\bu\.?s\.?\s+patent\s+no\.?\s*\d",  # U.S. Patent No. 7,608,400
     ]
 
     # Keywords indicating pending patents (more general - checked after provisional/filed)
     PENDING_KEYWORDS = [
-        r"\bpatent\s+pending\b",
+        r"\bpatent\s*-?\s*pending\b",  # patent pending, patent-pending
         r"\bpending\s+patent\b",
         r"\bawaiting\s+patent\b",
+        r"\bpatent\s+publication\b",  # Published application
     ]
 
     # Keywords indicating provisional patents
