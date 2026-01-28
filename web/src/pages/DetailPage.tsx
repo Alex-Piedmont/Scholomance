@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { Header } from '../components/Layout'
-import { MetadataPanel, SourceLink, RawDataViewer } from '../components/Detail'
+import { SourceLink, RawDataViewer } from '../components/Detail'
 import { useTechnology } from '../hooks'
 
 export function DetailPage() {
@@ -50,6 +50,15 @@ export function DetailPage() {
     )
   }
 
+  // Extract additional data from raw_data
+  const rawData = tech.raw_data as Record<string, unknown> | null
+  const keyPoints = rawData?.key_points as string[] | undefined
+  const publishedOn = rawData?.published_on as string | undefined
+  const inventors = rawData?.inventors as string[] | undefined
+  const applications = rawData?.applications as string[] | undefined
+  const advantages = rawData?.advantages as string[] | undefined
+  const stage = rawData?.stage as string | undefined
+
   return (
     <div>
       <Header title="Technology Details" />
@@ -66,57 +75,192 @@ export function DetailPage() {
           Back
         </button>
 
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          {/* Header */}
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  {tech.title}
-                </h1>
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-1 bg-gray-100 text-gray-700 text-sm rounded">
-                    {tech.university}
+        <div className="space-y-6">
+          {/* Main Card */}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-200">
+              <h1 className="text-2xl font-bold text-gray-900 mb-3">
+                {tech.title}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-3 py-1 bg-gray-100 text-gray-700 text-sm font-medium rounded">
+                  {tech.university.toUpperCase()}
+                </span>
+                {tech.top_field && (
+                  <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded">
+                    {tech.top_field}
                   </span>
-                  {tech.top_field && (
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded">
-                      {tech.top_field}
-                    </span>
-                  )}
-                  <span className={`px-2 py-1 text-xs rounded ${
-                    tech.classification_status === 'completed'
-                      ? 'bg-green-100 text-green-700'
-                      : tech.classification_status === 'pending'
-                      ? 'bg-yellow-100 text-yellow-700'
-                      : 'bg-gray-100 text-gray-600'
+                )}
+                {tech.subfield && (
+                  <span className="px-3 py-1 bg-blue-50 text-blue-700 text-sm rounded">
+                    {tech.subfield}
+                  </span>
+                )}
+                {tech.patent_status && tech.patent_status !== 'unknown' && (
+                  <span className={`px-3 py-1 text-sm rounded ${
+                    tech.patent_status === 'granted' ? 'bg-green-100 text-green-700' :
+                    tech.patent_status === 'pending' || tech.patent_status === 'filed' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-gray-100 text-gray-600'
                   }`}>
-                    {tech.classification_status || 'unknown'}
+                    Patent: {tech.patent_status}
                   </span>
+                )}
+                {stage && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 text-sm rounded">
+                    {stage}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Description */}
+            {tech.description && (
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">Description</h2>
+                <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
+                  {tech.description.replace(/\r\r/g, '\n\n').replace(/\r/g, '\n')}
+                </p>
+              </div>
+            )}
+
+            {/* Key Points */}
+            {keyPoints && keyPoints.length > 0 && (
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">Key Points</h2>
+                <ul className="space-y-2">
+                  {keyPoints.map((point, i) => (
+                    <li key={i} className="flex gap-2 text-gray-700">
+                      <span className="text-blue-500 mt-1">•</span>
+                      <span>{point.replace(/\r\r/g, ' ').replace(/\r/g, ' ')}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Applications */}
+            {applications && applications.length > 0 && (
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">Applications</h2>
+                <ul className="space-y-2">
+                  {applications.map((app, i) => (
+                    <li key={i} className="flex gap-2 text-gray-700">
+                      <span className="text-green-500 mt-1">•</span>
+                      <span>{app}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Advantages */}
+            {advantages && advantages.length > 0 && (
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">Advantages</h2>
+                <ul className="space-y-2">
+                  {advantages.map((adv, i) => (
+                    <li key={i} className="flex gap-2 text-gray-700">
+                      <span className="text-green-500 mt-1">✓</span>
+                      <span>{adv}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Source Link */}
+            <SourceLink url={tech.url} />
+          </div>
+
+          {/* Sidebar Info */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Metadata Card */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Details</h3>
+              <dl className="space-y-3">
+                <div>
+                  <dt className="text-xs text-gray-500 uppercase">University</dt>
+                  <dd className="text-sm text-gray-900 font-medium">{tech.university}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500 uppercase">Tech ID</dt>
+                  <dd className="text-sm text-gray-900 font-mono">{tech.tech_id}</dd>
+                </div>
+                {publishedOn && (
+                  <div>
+                    <dt className="text-xs text-gray-500 uppercase">Published</dt>
+                    <dd className="text-sm text-gray-900">{new Date(publishedOn).toLocaleDateString()}</dd>
+                  </div>
+                )}
+                {tech.first_seen && (
+                  <div>
+                    <dt className="text-xs text-gray-500 uppercase">First Seen</dt>
+                    <dd className="text-sm text-gray-900">{new Date(tech.first_seen).toLocaleDateString()}</dd>
+                  </div>
+                )}
+                {tech.classification_status && (
+                  <div>
+                    <dt className="text-xs text-gray-500 uppercase">Classification</dt>
+                    <dd className="text-sm">
+                      <span className={`px-2 py-0.5 rounded text-xs ${
+                        tech.classification_status === 'completed' ? 'bg-green-100 text-green-700' :
+                        tech.classification_status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {tech.classification_status}
+                      </span>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+
+            {/* Keywords Card */}
+            {tech.keywords && tech.keywords.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Keywords</h3>
+                <div className="flex flex-wrap gap-2">
+                  {tech.keywords.map((kw) => (
+                    <span key={kw} className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
+                      {kw}
+                    </span>
+                  ))}
                 </div>
               </div>
-            </div>
-          </div>
+            )}
 
-          {/* Metadata */}
-          <div className="p-6 border-b border-gray-200 bg-gray-50">
-            <MetadataPanel tech={tech} />
-          </div>
-
-          {/* Description */}
-          {tech.description && (
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-900 mb-3">Description</h2>
-              <div className="prose prose-sm max-w-none text-gray-700">
-                <p className="whitespace-pre-wrap">{tech.description}</p>
+            {/* Patent Geography Card */}
+            {tech.patent_geography && tech.patent_geography.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Patent Coverage</h3>
+                <div className="flex flex-wrap gap-2">
+                  {tech.patent_geography.map((geo) => (
+                    <span key={geo} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded font-medium">
+                      {geo}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Source Link */}
-          <SourceLink url={tech.url} />
+            {/* Inventors Card */}
+            {inventors && inventors.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Inventors</h3>
+                <ul className="space-y-1">
+                  {inventors.map((inv, i) => (
+                    <li key={i} className="text-sm text-gray-700">{inv}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
 
           {/* Raw Data */}
-          <RawDataViewer data={tech.raw_data} />
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <RawDataViewer data={tech.raw_data} />
+          </div>
         </div>
       </div>
     </div>

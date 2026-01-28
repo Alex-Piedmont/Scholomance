@@ -55,6 +55,9 @@ export interface TechnologyDetail {
   keywords: string[] | null
   classification_status: string | null
   classification_confidence: number | null
+  patent_status: string | null
+  patent_status_confidence: string | null
+  patent_status_source: string | null
   scraped_at: string | null
   updated_at: string | null
   first_seen: string | null
