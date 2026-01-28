@@ -167,6 +167,27 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="NorthwesternScraper",
         delay_seconds=0.3,
     ),
+    UniversityConfig(
+        code="buffalo",
+        name="University at Buffalo",
+        base_url="https://buffalo.technologypublisher.com",
+        scraper_class="BuffaloScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="unlv",
+        name="University of Nevada Las Vegas",
+        base_url="https://unlvecondev.technologypublisher.com",
+        scraper_class="UNLVScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="waynestate",
+        name="Wayne State University",
+        base_url="https://wayne.technologypublisher.com",
+        scraper_class="WayneStateScraper",
+        delay_seconds=0.3,
+    ),
 ]
 
 

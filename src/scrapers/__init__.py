@@ -22,6 +22,9 @@ from .uw import UWScraper
 from .purdue import PurdueScraper
 from .minnesota import MinnesotaScraper
 from .northwestern import NorthwesternScraper
+from .buffalo import BuffaloScraper
+from .unlv import UNLVScraper
+from .waynestate import WayneStateScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -45,6 +48,9 @@ SCRAPERS = {
     "purdue": PurdueScraper,
     "minnesota": MinnesotaScraper,
     "northwestern": NorthwesternScraper,
+    "buffalo": BuffaloScraper,
+    "unlv": UNLVScraper,
+    "waynestate": WayneStateScraper,
 }
 
 
@@ -94,6 +100,9 @@ __all__ = [
     "PurdueScraper",
     "MinnesotaScraper",
     "NorthwesternScraper",
+    "BuffaloScraper",
+    "UNLVScraper",
+    "WayneStateScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",
