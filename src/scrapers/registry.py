@@ -188,6 +188,62 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="WayneStateScraper",
         delay_seconds=0.3,
     ),
+    UniversityConfig(
+        code="ucf",
+        name="University of Central Florida",
+        base_url="https://ucf.flintbox.com",
+        scraper_class="UCFScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="colorado",
+        name="University of Colorado",
+        base_url="https://colorado.flintbox.com",
+        scraper_class="ColoradoScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="usc",
+        name="University of Southern California",
+        base_url="https://usc.flintbox.com",
+        scraper_class="USCScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="usu",
+        name="Utah State University",
+        base_url="https://usu.flintbox.com",
+        scraper_class="USUScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="ttu",
+        name="Texas Tech University",
+        base_url="https://ttu.flintbox.com",
+        scraper_class="TTUScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="uconn",
+        name="University of Connecticut",
+        base_url="https://uconn.flintbox.com",
+        scraper_class="UConnScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="louisville",
+        name="University of Louisville",
+        base_url="https://louisville.flintbox.com",
+        scraper_class="LouisvilleScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="iowa",
+        name="University of Iowa",
+        base_url="https://uiowa.flintbox.com",
+        scraper_class="IowaScraper",
+        delay_seconds=0.5,
+    ),
 ]
 
 

@@ -25,6 +25,15 @@ from .northwestern import NorthwesternScraper
 from .buffalo import BuffaloScraper
 from .unlv import UNLVScraper
 from .waynestate import WayneStateScraper
+from .flintbox_base import FlintboxScraper
+from .ucf import UCFScraper
+from .colorado import ColoradoScraper
+from .usc import USCScraper
+from .usu import USUScraper
+from .ttu import TTUScraper
+from .uconn import UConnScraper
+from .louisville import LouisvilleScraper
+from .iowa import IowaScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -51,6 +60,14 @@ SCRAPERS = {
     "buffalo": BuffaloScraper,
     "unlv": UNLVScraper,
     "waynestate": WayneStateScraper,
+    "ucf": UCFScraper,
+    "colorado": ColoradoScraper,
+    "usc": USCScraper,
+    "usu": USUScraper,
+    "ttu": TTUScraper,
+    "uconn": UConnScraper,
+    "louisville": LouisvilleScraper,
+    "iowa": IowaScraper,
 }
 
 
@@ -103,6 +120,15 @@ __all__ = [
     "BuffaloScraper",
     "UNLVScraper",
     "WayneStateScraper",
+    "FlintboxScraper",
+    "UCFScraper",
+    "ColoradoScraper",
+    "USCScraper",
+    "USUScraper",
+    "TTUScraper",
+    "UConnScraper",
+    "LouisvilleScraper",
+    "IowaScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",
