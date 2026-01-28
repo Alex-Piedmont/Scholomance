@@ -234,6 +234,120 @@ class TestPatentDetector:
         assert result.status == PatentStatus.GRANTED
 
 
+class TestFlintboxPatentDetection:
+    """Tests for Flintbox-specific patent detection."""
+
+    def test_detect_from_ip_status_granted(self):
+        """Test detection from Flintbox ip_status field."""
+        raw_data = {"ip_status": "Granted"}
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.GRANTED
+        assert result.source == "api_data"
+
+    def test_detect_from_ip_status_filed(self):
+        """Test detection of Filed status from ip_status."""
+        raw_data = {"ip_status": "Filed"}
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.FILED
+        assert result.source == "api_data"
+
+    def test_detect_from_publications_issued_patent(self):
+        """Test detection from 'Issued US patent' in publications HTML."""
+        raw_data = {
+            "publications": '<ul><li>Issued US patent <a href="https://patents.google.com/patent/US9389413B2/en">9,389,413</a></li></ul>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.GRANTED
+        assert "9389413" in result.details or "9,389,413" in result.details
+
+    def test_detect_from_publications_us_patent_number(self):
+        """Test detection of granted patent from US patent number in publications."""
+        raw_data = {
+            "publications": '<p>US Patent 10,410,380</p>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.GRANTED
+
+    def test_detect_from_publications_pending_application(self):
+        """Test detection of pending status from US application number (202x)."""
+        raw_data = {
+            "publications": '<p>US 20240030400</p>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.PENDING
+
+    def test_detect_from_publications_patent_pending_text(self):
+        """Test detection of patent pending text in publications."""
+        raw_data = {
+            "publications": '<p>This technology is patent pending.</p>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.PENDING
+
+    def test_detect_from_ip_number(self):
+        """Test detection from ip_number field."""
+        raw_data = {"ip_number": "US10410380"}
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.GRANTED
+        assert result.source == "api_data"
+
+    def test_ip_status_takes_precedence(self):
+        """Test that ip_status takes precedence over publications."""
+        raw_data = {
+            "ip_status": "Filed",
+            "publications": '<p>US Patent 10,410,380</p>'  # Would indicate granted
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        # ip_status should win
+        assert result.status == PatentStatus.FILED
+
+    def test_detect_provisional_application_in_publications(self):
+        """Test detection of provisional patent application in publications."""
+        raw_data = {
+            "publications": '<li>Provisional Patent Application No. 63/417,605</li>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.PROVISIONAL
+
+    def test_detect_pct_in_publications(self):
+        """Test detection of PCT filing in publications."""
+        raw_data = {
+            "publications": '<li>Patent filed (<a href="url">PCT</a>)</li>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.FILED
+
+    def test_detect_patent_filed_in_publications(self):
+        """Test detection of 'patent filed' in publications."""
+        raw_data = {
+            "publications": '<p>A patent filed for this technology.</p>'
+        }
+
+        result = patent_detector.detect(raw_data=raw_data)
+
+        assert result.status == PatentStatus.FILED
+
+
 class TestPatentStatusEnum:
     """Tests for PatentStatus enum."""
 

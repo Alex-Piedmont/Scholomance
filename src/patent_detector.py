@@ -168,6 +168,25 @@ class PatentDetector:
         if patent_statuses:
             return self._parse_patent_statuses(patent_statuses)
 
+        # Check for Flintbox-style ip_status field
+        ip_status = raw_data.get("ip_status") or raw_data.get("ipStatus")
+        if ip_status:
+            status = self._normalize_status(ip_status)
+            if status != PatentStatus.UNKNOWN:
+                return PatentDetectionResult(
+                    status=status,
+                    confidence=SOURCE_CONFIDENCE["api_data"],
+                    source="api_data",
+                    details=f"From ip_status: {ip_status}",
+                )
+
+        # Check for Flintbox publications field (HTML with patent info)
+        publications = raw_data.get("publications")
+        if publications:
+            result = self._parse_publications_html(publications)
+            if result:
+                return result
+
         # Check for direct patent_status field
         patent_status = raw_data.get("patent_status") or raw_data.get("patentStatus")
         if patent_status:
@@ -190,6 +209,16 @@ class PatentDetector:
                 details=f"Patent numbers: {patent_numbers}",
             )
 
+        # Check for ip_number field (Flintbox)
+        ip_number = raw_data.get("ip_number") or raw_data.get("ipNumber")
+        if ip_number:
+            return PatentDetectionResult(
+                status=PatentStatus.GRANTED,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details=f"IP number: {ip_number}",
+            )
+
         # Check for patent field (boolean or string)
         has_patent = raw_data.get("patent") or raw_data.get("has_patent")
         if has_patent:
@@ -209,6 +238,95 @@ class PatentDetector:
                         source="api_data",
                         details=f"From patent field: {has_patent}",
                     )
+
+        return None
+
+    def _parse_publications_html(self, html: str) -> Optional[PatentDetectionResult]:
+        """Parse Flintbox publications HTML for patent information."""
+        if not html:
+            return None
+
+        html_lower = html.lower()
+
+        # Check for "Issued US patent" pattern (granted)
+        issued_match = re.search(
+            r"issued\s+(?:us\s+)?patent\s+[\d,]+",
+            html_lower
+        )
+        if issued_match:
+            # Extract patent number
+            num_match = re.search(r"(\d{1,3}(?:,\d{3})+|\d{7,})", html)
+            patent_num = num_match.group(1) if num_match else "unknown"
+            return PatentDetectionResult(
+                status=PatentStatus.GRANTED,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details=f"Issued patent in publications: {patent_num}",
+            )
+
+        # Check for US patent numbers in publications
+        # Granted patents: 7-8 digit numbers NOT starting with 202x
+        # Published applications: numbers starting with 202x (pending)
+        patent_nums = re.findall(
+            r"US\s*(?:Patent\s*)?(?:No\.?\s*)?(\d{1,3}(?:,\d{3})+|\d{7,})",
+            html,
+            re.IGNORECASE
+        )
+
+        granted_patents = []
+        pending_applications = []
+
+        for num in patent_nums:
+            # Remove commas for analysis
+            clean_num = num.replace(",", "")
+            # Published applications start with year (202x)
+            if clean_num.startswith("202") and len(clean_num) >= 10:
+                pending_applications.append(num)
+            elif len(clean_num) >= 7:
+                granted_patents.append(num)
+
+        if granted_patents:
+            return PatentDetectionResult(
+                status=PatentStatus.GRANTED,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details=f"US patent(s) in publications: {', '.join(granted_patents[:3])}",
+            )
+
+        if pending_applications:
+            return PatentDetectionResult(
+                status=PatentStatus.PENDING,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details=f"US application(s) in publications: {', '.join(pending_applications[:3])}",
+            )
+
+        # Check for "patent pending" in publications
+        if "patent pending" in html_lower:
+            return PatentDetectionResult(
+                status=PatentStatus.PENDING,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details="Patent pending mentioned in publications",
+            )
+
+        # Check for provisional patent applications
+        if re.search(r"provisional\s+patent\s+application", html_lower):
+            return PatentDetectionResult(
+                status=PatentStatus.PROVISIONAL,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details="Provisional patent application in publications",
+            )
+
+        # Check for "patent filed" or PCT applications
+        if re.search(r"patent\s+filed", html_lower) or re.search(r"\bpct\b", html_lower):
+            return PatentDetectionResult(
+                status=PatentStatus.FILED,
+                confidence=SOURCE_CONFIDENCE["api_data"],
+                source="api_data",
+                details="Patent filed/PCT in publications",
+            )
 
         return None
 
