@@ -659,5 +659,34 @@ def show(tech_id: int) -> None:
     console.print(tech.description or "No description available.")
 
 
+@main.command()
+@click.option("--host", "-h", type=str, default="127.0.0.1", help="Host to bind to")
+@click.option("--port", "-p", type=int, default=8000, help="Port to bind to")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+def serve(host: str, port: int, reload: bool) -> None:
+    """Start the web dashboard API server.
+
+    Examples:
+        tech-scraper serve
+        tech-scraper serve --port 8080
+        tech-scraper serve --reload
+        tech-scraper serve --host 0.0.0.0 --port 8000
+    """
+    import uvicorn
+
+    console.print(f"\n[bold blue]Starting Tech Transfer Dashboard API[/bold blue]")
+    console.print(f"[dim]Server:[/dim] http://{host}:{port}")
+    console.print(f"[dim]API docs:[/dim] http://{host}:{port}/docs")
+    console.print(f"[dim]Reload:[/dim] {'enabled' if reload else 'disabled'}")
+    console.print()
+
+    uvicorn.run(
+        "src.api.main:app",
+        host=host,
+        port=port,
+        reload=reload,
+    )
+
+
 if __name__ == "__main__":
     main()

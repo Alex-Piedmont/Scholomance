@@ -77,3 +77,8 @@ logs/
 .env.production
 credentials.json
 secrets.json
+
+# Web dashboard
+web/node_modules/
+web/dist/
+.dashboard_progress
