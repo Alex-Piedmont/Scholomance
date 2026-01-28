@@ -83,6 +83,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="ColumbiaScraper",
         delay_seconds=0.2,
     ),
+    UniversityConfig(
+        code="upenn",
+        name="University of Pennsylvania",
+        base_url="https://upenn.technologypublisher.com",
+        scraper_class="UPennScraper",
+        delay_seconds=0.2,
+    ),
 ]
 
 
