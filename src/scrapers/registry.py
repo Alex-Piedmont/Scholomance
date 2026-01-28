@@ -76,6 +76,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="JHUScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="columbia",
+        name="Columbia University",
+        base_url="https://inventions.techventures.columbia.edu",
+        scraper_class="ColumbiaScraper",
+        delay_seconds=0.2,
+    ),
 ]
 
 
