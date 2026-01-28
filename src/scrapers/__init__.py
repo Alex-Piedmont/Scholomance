@@ -16,6 +16,12 @@ from .ucsystem import UCSystemScraper
 from .cornell import CornellScraper
 from .cmu import CMUScraper
 from .uiuc import UIUCScraper
+from .techpub_base import TechPublisherScraper
+from .warf import WARFScraper
+from .uw import UWScraper
+from .purdue import PurdueScraper
+from .minnesota import MinnesotaScraper
+from .northwestern import NorthwesternScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -34,6 +40,11 @@ SCRAPERS = {
     "cornell": CornellScraper,
     "cmu": CMUScraper,
     "uiuc": UIUCScraper,
+    "warf": WARFScraper,
+    "uw": UWScraper,
+    "purdue": PurdueScraper,
+    "minnesota": MinnesotaScraper,
+    "northwestern": NorthwesternScraper,
 }
 
 
@@ -77,6 +88,12 @@ __all__ = [
     "CornellScraper",
     "CMUScraper",
     "UIUCScraper",
+    "TechPublisherScraper",
+    "WARFScraper",
+    "UWScraper",
+    "PurdueScraper",
+    "MinnesotaScraper",
+    "NorthwesternScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",

@@ -132,6 +132,41 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UIUCScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="warf",
+        name="Wisconsin Alumni Research Foundation",
+        base_url="https://expresslicensing.warf.org",
+        scraper_class="WARFScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="uw",
+        name="University of Washington",
+        base_url="https://els2.comotion.uw.edu",
+        scraper_class="UWScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="purdue",
+        name="Purdue University",
+        base_url="https://licensing.prf.org",
+        scraper_class="PurdueScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="minnesota",
+        name="University of Minnesota",
+        base_url="https://license.umn.edu",
+        scraper_class="MinnesotaScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="northwestern",
+        name="Northwestern University",
+        base_url="https://inventions.invo.northwestern.edu",
+        scraper_class="NorthwesternScraper",
+        delay_seconds=0.3,
+    ),
 ]
 
 
