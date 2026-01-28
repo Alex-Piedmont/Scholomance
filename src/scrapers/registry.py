@@ -265,6 +265,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="TexasStateScraper",
         delay_seconds=0.3,
     ),
+    UniversityConfig(
+        code="duke",
+        name="Duke University",
+        base_url="https://otc.duke.edu",
+        scraper_class="DukeScraper",
+        delay_seconds=1.0,
+    ),
 ]
 
 

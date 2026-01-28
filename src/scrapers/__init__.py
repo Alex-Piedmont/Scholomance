@@ -38,6 +38,7 @@ from .rss_base import RSSBaseScraper
 from .princeton import PrincetonScraper
 from .michiganstate import MichiganStateScraper
 from .texasstate import TexasStateScraper
+from .duke import DukeScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -75,6 +76,7 @@ SCRAPERS = {
     "princeton": PrincetonScraper,
     "michiganstate": MichiganStateScraper,
     "texasstate": TexasStateScraper,
+    "duke": DukeScraper,
 }
 
 
@@ -140,6 +142,7 @@ __all__ = [
     "PrincetonScraper",
     "MichiganStateScraper",
     "TexasStateScraper",
+    "DukeScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",
