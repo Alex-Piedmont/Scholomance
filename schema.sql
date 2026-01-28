@@ -38,7 +38,13 @@ CREATE TABLE IF NOT EXISTS technologies (
     classification_status VARCHAR(50) DEFAULT 'pending',
     classification_confidence DECIMAL(3,2),
     last_classified_at TIMESTAMP WITH TIME ZONE,
-    
+
+    -- Patent status tracking
+    patent_status VARCHAR(50) DEFAULT 'unknown',
+    patent_status_confidence DECIMAL(3,2),
+    patent_status_source VARCHAR(50),
+    last_patent_check_at TIMESTAMP WITH TIME ZONE,
+
     -- Constraints
     CONSTRAINT unique_university_tech UNIQUE(university, tech_id)
 );
@@ -49,6 +55,7 @@ CREATE INDEX idx_technologies_top_field ON technologies(top_field);
 CREATE INDEX idx_technologies_subfield ON technologies(subfield);
 CREATE INDEX idx_technologies_scraped_at ON technologies(scraped_at);
 CREATE INDEX idx_technologies_classification_status ON technologies(classification_status);
+CREATE INDEX idx_technologies_patent_status ON technologies(patent_status);
 
 -- GIN indexes for full-text search and array operations
 CREATE INDEX idx_technologies_title_search ON technologies USING gin(to_tsvector('english', title));

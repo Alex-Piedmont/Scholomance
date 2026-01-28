@@ -28,6 +28,7 @@ def list_technologies(
     top_field: Optional[str] = Query(None, description="Filter by top field"),
     subfield: Optional[str] = Query(None, description="Filter by subfield"),
     university: Optional[str] = Query(None, description="Filter by university"),
+    patent_status: Optional[str] = Query(None, description="Filter by patent status (unknown, pending, provisional, filed, granted, expired)"),
     from_date: Optional[datetime] = Query(None, description="Filter by first_seen >= date"),
     to_date: Optional[datetime] = Query(None, description="Filter by first_seen <= date"),
 ):
@@ -53,6 +54,9 @@ def list_technologies(
 
         if university:
             query = query.filter(Technology.university == university)
+
+        if patent_status:
+            query = query.filter(Technology.patent_status == patent_status)
 
         if from_date:
             query = query.filter(Technology.first_seen >= from_date)
@@ -85,6 +89,7 @@ def list_technologies(
                 url=t.url,
                 top_field=t.top_field,
                 subfield=t.subfield,
+                patent_status=t.patent_status,
                 first_seen=t.first_seen,
             )
             for t in technologies
@@ -121,6 +126,9 @@ def get_technology(uuid: UUID):
             keywords=tech.keywords,
             classification_status=tech.classification_status,
             classification_confidence=tech.classification_confidence,
+            patent_status=tech.patent_status,
+            patent_status_confidence=tech.patent_status_confidence,
+            patent_status_source=tech.patent_status_source,
             scraped_at=tech.scraped_at,
             updated_at=tech.updated_at,
             first_seen=tech.first_seen,

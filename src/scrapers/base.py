@@ -105,6 +105,7 @@ class Technology:
     keywords: Optional[list[str]] = None
     raw_data: dict[str, Any] = field(default_factory=dict)
     scraped_at: datetime = field(default_factory=_utc_now)
+    patent_status: Optional[str] = None  # Can be set by scraper if known from source
 
 
 class BaseScraper(ABC):

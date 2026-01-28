@@ -17,6 +17,7 @@ from .database import db, Database, Technology
 from .scrapers import SCRAPERS, get_scraper
 from .classifier import Classifier, ClassificationResult, ClassificationError
 from .taxonomy import get_top_fields, get_subfields
+from .patent_detector import patent_detector, PatentStatus
 
 # Configure console for rich output
 console = Console()
@@ -405,6 +406,171 @@ def classification_stats(university: Optional[str]) -> None:
         console.print(f"\n[bold]By Field[/bold]")
         for field, count in sorted(stats["by_field"].items(), key=lambda x: -x[1]):
             console.print(f"  {field}: {count}")
+
+
+@main.command()
+@click.option("--batch", "-b", type=int, default=100, help="Number of technologies to process")
+@click.option("--university", "-u", type=str, help="Only detect patents for this university")
+@click.option("--force", is_flag=True, help="Re-detect for technologies that already have patent status")
+@click.option("--dry-run", is_flag=True, help="Show what would be detected without updating database")
+@click.pass_context
+def detect_patents(
+    ctx: click.Context,
+    batch: int,
+    university: Optional[str],
+    force: bool,
+    dry_run: bool,
+) -> None:
+    """Detect patent status for technologies.
+
+    Analyzes technologies to detect patent status from:
+    - Raw data (API-provided patent info)
+    - URL patterns (patent numbers)
+    - Text content (keywords in title/description)
+
+    Examples:
+        tech-scraper detect-patents --batch 100
+        tech-scraper detect-patents --university jhu --force
+        tech-scraper detect-patents --dry-run
+    """
+    # Get technologies to process
+    technologies = db.get_technologies_for_patent_detection(
+        university=university,
+        force=force,
+        limit=batch,
+    )
+
+    if not technologies:
+        console.print("[yellow]No technologies to process.[/yellow]")
+        if not force:
+            console.print("[dim]Use --force to re-detect for technologies with existing patent status.[/dim]")
+        return
+
+    console.print(f"\n[bold blue]Found {len(technologies)} technologies to process[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow]Dry run mode - no database updates[/yellow]")
+
+        table = Table(title="Patent Detection Results (Dry Run)")
+        table.add_column("ID", style="dim")
+        table.add_column("University")
+        table.add_column("Title")
+        table.add_column("Status")
+        table.add_column("Confidence")
+        table.add_column("Source")
+
+        status_counts: dict[str, int] = {}
+
+        for tech in technologies[:50]:  # Show first 50
+            result = patent_detector.detect(
+                raw_data=tech.raw_data,
+                url=tech.url,
+                title=tech.title,
+                description=tech.description,
+            )
+
+            status_str = result.status.value
+            status_counts[status_str] = status_counts.get(status_str, 0) + 1
+
+            # Color based on status
+            if result.status == PatentStatus.GRANTED:
+                status_display = f"[green]{status_str}[/green]"
+            elif result.status == PatentStatus.PENDING:
+                status_display = f"[yellow]{status_str}[/yellow]"
+            elif result.status == PatentStatus.UNKNOWN:
+                status_display = f"[dim]{status_str}[/dim]"
+            else:
+                status_display = status_str
+
+            title = tech.title[:40] + "..." if len(tech.title) > 40 else tech.title
+            table.add_row(
+                str(tech.id),
+                tech.university,
+                title,
+                status_display,
+                f"{result.confidence:.2f}",
+                result.source,
+            )
+
+        console.print(table)
+
+        if len(technologies) > 50:
+            console.print(f"[dim]... and {len(technologies) - 50} more[/dim]")
+
+        console.print(f"\n[bold]Status Summary:[/bold]")
+        for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
+            console.print(f"  {status}: {count}")
+        return
+
+    # Process technologies
+    success_count = 0
+    status_counts: dict[str, int] = {}
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Detecting patents...", total=len(technologies))
+
+        for tech in technologies:
+            result = patent_detector.detect(
+                raw_data=tech.raw_data,
+                url=tech.url,
+                title=tech.title,
+                description=tech.description,
+            )
+
+            # Update database
+            db.update_technology_patent_status(
+                tech_id=tech.id,
+                patent_status=result.status.value,
+                confidence=result.confidence,
+                source=result.source,
+            )
+
+            status_str = result.status.value
+            status_counts[status_str] = status_counts.get(status_str, 0) + 1
+            success_count += 1
+
+            if ctx.obj["verbose"]:
+                console.print(
+                    f"[dim]{tech.id}:[/dim] {result.status.value} "
+                    f"(confidence: {result.confidence:.2f}, source: {result.source})"
+                )
+
+            progress.update(task, advance=1, description=f"Processed {success_count}/{len(technologies)}")
+
+    # Summary
+    console.print(f"\n[bold green]Patent detection complete![/bold green]")
+    console.print(f"  Processed: {success_count}")
+    console.print(f"\n[bold]By Status:[/bold]")
+    for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
+        console.print(f"  {status}: {count}")
+
+
+@main.command()
+@click.option("--university", "-u", type=str, help="Show stats for specific university")
+def patent_stats(university: Optional[str]) -> None:
+    """Show patent status statistics.
+
+    Examples:
+        tech-scraper patent-stats
+        tech-scraper patent-stats -u jhu
+    """
+    counts = db.count_by_patent_status(university=university)
+
+    console.print(f"\n[bold]Patent Status Statistics[/bold]")
+    if university:
+        console.print(f"University: {university}")
+
+    total = sum(counts.values())
+    console.print(f"  Total: {total}")
+
+    for status in ["granted", "pending", "provisional", "filed", "expired", "unknown"]:
+        count = counts.get(status, 0)
+        pct = (count / total * 100) if total > 0 else 0
+        console.print(f"  {status.capitalize()}: {count} ({pct:.1f}%)")
 
 
 @main.command()

@@ -47,6 +47,7 @@ class TechnologySummary(BaseModel):
     url: str
     top_field: Optional[str] = None
     subfield: Optional[str] = None
+    patent_status: Optional[str] = None
     first_seen: Optional[datetime] = None
 
     class Config:
@@ -66,6 +67,9 @@ class TechnologyDetail(BaseModel):
     keywords: Optional[list[str]] = None
     classification_status: Optional[str] = None
     classification_confidence: Optional[Decimal] = None
+    patent_status: Optional[str] = None
+    patent_status_confidence: Optional[Decimal] = None
+    patent_status_source: Optional[str] = None
     scraped_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     first_seen: Optional[datetime] = None

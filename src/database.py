@@ -30,6 +30,7 @@ from loguru import logger
 
 from .config import settings
 from .scrapers.base import Technology as TechnologyData
+from .patent_detector import patent_detector, PatentStatus
 
 
 Base = declarative_base()
@@ -71,6 +72,12 @@ class Technology(Base):
     classification_confidence = Column(DECIMAL(3, 2))
     last_classified_at = Column(DateTime(timezone=True))
 
+    # Patent status tracking
+    patent_status = Column(String(50), default="unknown")
+    patent_status_confidence = Column(DECIMAL(3, 2))
+    patent_status_source = Column(String(50))
+    last_patent_check_at = Column(DateTime(timezone=True))
+
     # Unique constraint
     __table_args__ = (
         Index("idx_technologies_university", "university"),
@@ -78,6 +85,7 @@ class Technology(Base):
         Index("idx_technologies_subfield", "subfield"),
         Index("idx_technologies_scraped_at", "scraped_at"),
         Index("idx_technologies_classification_status", "classification_status"),
+        Index("idx_technologies_patent_status", "patent_status"),
         {"extend_existing": True},
     )
 
@@ -237,6 +245,8 @@ class Database:
         """
         Bulk insert/update technologies.
 
+        Automatically detects patent status during insert/update.
+
         Returns:
             Tuple of (new_count, updated_count)
         """
@@ -246,6 +256,14 @@ class Database:
             updated_count = 0
 
             for tech_data in technologies:
+                # Auto-detect patent status
+                patent_result = patent_detector.detect(
+                    raw_data=tech_data.raw_data,
+                    url=tech_data.url,
+                    title=tech_data.title,
+                    description=tech_data.description,
+                )
+
                 existing = (
                     s.query(Technology)
                     .filter(
@@ -262,6 +280,11 @@ class Database:
                     existing.raw_data = tech_data.raw_data
                     existing.keywords = tech_data.keywords
                     existing.updated_at = datetime.now(timezone.utc)
+                    # Update patent status
+                    existing.patent_status = patent_result.status.value
+                    existing.patent_status_confidence = patent_result.confidence
+                    existing.patent_status_source = patent_result.source
+                    existing.last_patent_check_at = datetime.now(timezone.utc)
                     updated_count += 1
                 else:
                     tech = Technology(
@@ -273,6 +296,11 @@ class Database:
                         raw_data=tech_data.raw_data,
                         keywords=tech_data.keywords,
                         scraped_at=tech_data.scraped_at,
+                        # Set patent status
+                        patent_status=patent_result.status.value,
+                        patent_status_confidence=patent_result.confidence,
+                        patent_status_source=patent_result.source,
+                        last_patent_check_at=datetime.now(timezone.utc),
                     )
                     s.add(tech)
                     new_count += 1
@@ -582,6 +610,104 @@ class Database:
                 "total_cost": float(total_cost),
                 "total_classifications": total_classifications,
                 "by_field": {field: count for field, count in field_counts if field},
+            }
+
+    def update_technology_patent_status(
+        self,
+        tech_id: int,
+        patent_status: str,
+        confidence: float,
+        source: str,
+    ) -> bool:
+        """
+        Update patent status for a technology.
+
+        Args:
+            tech_id: Database ID of the technology
+            patent_status: Status value (unknown, pending, provisional, filed, granted, expired)
+            confidence: Confidence score (0.0-1.0)
+            source: Detection source (api_data, url_patent_number, text_explicit, etc.)
+
+        Returns:
+            True if successful, False if technology not found
+        """
+        with self.get_session() as session:
+            tech = session.query(Technology).filter(Technology.id == tech_id).first()
+            if not tech:
+                return False
+
+            tech.patent_status = patent_status
+            tech.patent_status_confidence = confidence
+            tech.patent_status_source = source
+            tech.last_patent_check_at = datetime.now(timezone.utc)
+
+            return True
+
+    def get_technologies_for_patent_detection(
+        self,
+        university: Optional[str] = None,
+        force: bool = False,
+        limit: int = 100,
+    ) -> list[Technology]:
+        """
+        Get technologies that need patent status detection.
+
+        Args:
+            university: Filter by university code
+            force: If True, include technologies that already have patent status
+            limit: Maximum number to return
+
+        Returns:
+            List of Technology objects needing patent detection
+        """
+        with self.get_session() as session:
+            query = session.query(Technology)
+
+            if university:
+                query = query.filter(Technology.university == university)
+
+            if not force:
+                # Only get technologies that haven't been checked yet
+                query = query.filter(Technology.last_patent_check_at.is_(None))
+
+            query = query.order_by(Technology.scraped_at.desc())
+            query = query.limit(limit)
+
+            # Execute query and make transient copies so they can be used outside session
+            results = query.all()
+            from sqlalchemy.orm import make_transient
+            for obj in results:
+                # Access all attributes to load them before detaching
+                _ = obj.id, obj.university, obj.tech_id, obj.title, obj.description
+                _ = obj.url, obj.raw_data, obj.patent_status
+                session.expunge(obj)
+                make_transient(obj)
+            return results
+
+    def count_by_patent_status(self, university: Optional[str] = None) -> dict[str, int]:
+        """
+        Get counts of technologies by patent status.
+
+        Args:
+            university: Filter by university code (optional)
+
+        Returns:
+            Dictionary mapping patent status to count
+        """
+        with self.get_session() as session:
+            query = session.query(
+                Technology.patent_status,
+                func.count(Technology.id)
+            ).group_by(Technology.patent_status)
+
+            if university:
+                query = query.filter(Technology.university == university)
+
+            results = query.all()
+
+            return {
+                status or "unknown": count
+                for status, count in results
             }
 
 
