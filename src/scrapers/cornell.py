@@ -255,6 +255,11 @@ class CornellScraper(BaseScraper):
                 raw_data["ip_url"] = detail.get("ipUrl")
                 raw_data["ip_date"] = detail.get("ipDate")
                 raw_data["publications"] = detail.get("publications")
+                # Store full content fields for richer detail display
+                raw_data["abstract"] = detail.get("abstract")
+                raw_data["other"] = detail.get("other")
+                raw_data["benefit"] = detail.get("benefit")
+                raw_data["market_application"] = detail.get("marketApplication")
 
             return Technology(
                 university="cornell",

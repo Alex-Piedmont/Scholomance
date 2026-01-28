@@ -162,7 +162,7 @@ class ColumbiaScraper(BaseScraper):
             url: The URL of the technology detail page
 
         Returns:
-            Dictionary with detailed technology information
+            Dictionary with detailed technology information including patent info
         """
         await self._init_session()
 
@@ -176,17 +176,85 @@ class ColumbiaScraper(BaseScraper):
 
                 detail = {"url": url}
 
-                # Try to extract description and other details
-                # The actual structure would need to be determined from the page
+                # Try to extract description from meta tag
                 desc = soup.find("meta", attrs={"name": "description"})
                 if desc:
                     detail["description"] = desc.get("content", "")
+
+                # Get full page text for patent extraction
+                page_text = soup.get_text()
+                if page_text:
+                    detail["full_text"] = page_text[:5000]  # Store first 5000 chars
+
+                # Extract patent information
+                patent_info = self._extract_patent_info(html)
+                if patent_info:
+                    detail.update(patent_info)
 
                 return detail
 
         except Exception as e:
             logger.debug(f"Error fetching technology detail: {e}")
             return None
+
+    def _extract_patent_info(self, html: str) -> dict:
+        """Extract patent information from HTML content."""
+        patent_info = {}
+        patent_numbers = []
+
+        # Look for US patent numbers (granted patents: 7-10 digits)
+        us_patent_matches = re.findall(
+            r'(?:US|U\.?S\.?\s*Patent(?:\s*No\.?)?\s*)(\d{1,3}(?:,\d{3})+|\d{7,10})',
+            html,
+            re.IGNORECASE
+        )
+        for match in us_patent_matches:
+            clean_num = match.replace(",", "")
+            if len(clean_num) >= 7 and not clean_num.startswith("202"):
+                patent_numbers.append(f"US{match}")
+
+        # Look for patent application numbers
+        app_matches = re.findall(
+            r'(?:US|Application)\s*(202\d{7,})',
+            html,
+            re.IGNORECASE
+        )
+        if app_matches:
+            patent_info["patent_applications"] = list(set(app_matches))
+
+        if patent_numbers:
+            patent_info["patent_numbers"] = list(set(patent_numbers))
+            patent_info["ip_status"] = "Granted"
+
+        html_lower = html.lower()
+
+        # Check for "Patent Status" section with specific status
+        status_match = re.search(
+            r'patent\s*status[:\s]*([a-zA-Z\s]+)',
+            html_lower
+        )
+        if status_match:
+            status_text = status_match.group(1).strip()
+            if "pending" in status_text:
+                if "ip_status" not in patent_info:
+                    patent_info["ip_status"] = "Pending"
+            elif "granted" in status_text or "issued" in status_text:
+                patent_info["ip_status"] = "Granted"
+            elif "filed" in status_text:
+                if "ip_status" not in patent_info:
+                    patent_info["ip_status"] = "Filed"
+
+        # Check for patent pending keywords
+        if "patent pending" in html_lower or "patent-pending" in html_lower:
+            if "ip_status" not in patent_info:
+                patent_info["ip_status"] = "Pending"
+
+        # Check for provisional
+        if "provisional" in html_lower and "patent" in html_lower:
+            if "ip_status" not in patent_info:
+                patent_info["ip_status"] = "Provisional"
+
+        return patent_info
 
     # Backwards compatibility methods
     async def _init_browser(self) -> None:

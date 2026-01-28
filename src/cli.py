@@ -550,6 +550,177 @@ def detect_patents(
 
 
 @main.command()
+@click.option("--batch", "-b", type=int, default=50, help="Number of technologies to process")
+@click.option(
+    "--university", "-u",
+    type=click.Choice(["mit", "columbia", "jhu"]),
+    required=True,
+    help="University to enrich (must be MIT, Columbia, or JHU)"
+)
+@click.option("--force", is_flag=True, help="Re-enrich technologies that already have patent status")
+@click.option("--dry-run", is_flag=True, help="Show what would be enriched without fetching pages")
+@click.pass_context
+def enrich_patents(
+    ctx: click.Context,
+    batch: int,
+    university: str,
+    force: bool,
+    dry_run: bool,
+) -> None:
+    """Enrich patent data by fetching detail pages for HTML-based scrapers.
+
+    This command fetches individual technology detail pages to extract
+    patent information that isn't available in the listing/API data.
+
+    Supports: MIT, Columbia, JHU
+
+    Examples:
+        tech-scraper enrich-patents --university mit --batch 50
+        tech-scraper enrich-patents -u jhu --force
+        tech-scraper enrich-patents -u columbia --dry-run
+    """
+    asyncio.run(_enrich_patents(university, batch, force, dry_run, ctx.obj["verbose"]))
+
+
+async def _enrich_patents(
+    university: str,
+    batch: int,
+    force: bool,
+    dry_run: bool,
+    verbose: bool,
+) -> None:
+    """Async function to enrich patent data from detail pages."""
+    from .scrapers import get_scraper
+
+    # Get technologies with unknown patent status for this university
+    technologies = db.get_technologies_for_patent_detection(
+        university=university,
+        force=force,
+        limit=batch,
+    )
+
+    if not technologies:
+        console.print(f"[yellow]No technologies to enrich for {university}.[/yellow]")
+        if not force:
+            console.print("[dim]Use --force to re-enrich technologies with existing patent status.[/dim]")
+        return
+
+    console.print(f"\n[bold blue]Found {len(technologies)} technologies to enrich from {university}[/bold blue]")
+
+    if dry_run:
+        console.print("[yellow]Dry run mode - no pages will be fetched[/yellow]")
+
+        from rich.table import Table
+        table = Table(title=f"Technologies to Enrich ({university})")
+        table.add_column("ID", style="dim")
+        table.add_column("Title")
+        table.add_column("URL", style="dim")
+        table.add_column("Current Status")
+
+        for tech in technologies[:30]:
+            title = tech.title[:40] + "..." if len(tech.title) > 40 else tech.title
+            url = tech.url[:50] + "..." if len(tech.url) > 50 else tech.url
+            table.add_row(
+                str(tech.id),
+                title,
+                url,
+                tech.patent_status or "unknown",
+            )
+
+        console.print(table)
+        if len(technologies) > 30:
+            console.print(f"[dim]... and {len(technologies) - 30} more[/dim]")
+        return
+
+    # Get the scraper for this university
+    try:
+        scraper = get_scraper(university)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+    # Process technologies
+    enriched_count = 0
+    detected_count = 0
+    error_count = 0
+    status_counts: dict[str, int] = {}
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Enriching patent data...", total=len(technologies))
+
+        for tech in technologies:
+            try:
+                # Fetch detail page
+                detail = await scraper.scrape_technology_detail(tech.url)
+
+                if detail:
+                    enriched_count += 1
+
+                    # Merge detail data into raw_data
+                    raw_data = tech.raw_data or {}
+                    raw_data.update(detail)
+
+                    # Re-detect patent status with enriched data
+                    result = patent_detector.detect(
+                        raw_data=raw_data,
+                        url=tech.url,
+                        title=tech.title,
+                        description=tech.description,
+                    )
+
+                    # Update database with enriched raw_data and patent status
+                    db.update_technology_with_enriched_data(
+                        tech_id=tech.id,
+                        raw_data=raw_data,
+                        patent_status=result.status.value,
+                        patent_confidence=result.confidence,
+                        patent_source=result.source,
+                    )
+
+                    if result.status.value != "unknown":
+                        detected_count += 1
+
+                    status_str = result.status.value
+                    status_counts[status_str] = status_counts.get(status_str, 0) + 1
+
+                    if verbose:
+                        console.print(
+                            f"[dim]{tech.id}:[/dim] {result.status.value} "
+                            f"(confidence: {result.confidence:.2f})"
+                        )
+                else:
+                    error_count += 1
+                    if verbose:
+                        console.print(f"[red]{tech.id}:[/red] Could not fetch detail page")
+
+                # Rate limiting
+                await asyncio.sleep(scraper.delay_seconds)
+
+            except Exception as e:
+                error_count += 1
+                if verbose:
+                    console.print(f"[red]{tech.id}:[/red] Error - {e}")
+
+            progress.update(task, advance=1, description=f"Enriched {enriched_count}/{len(technologies)}")
+
+    # Clean up scraper session
+    await scraper._close_session()
+
+    # Summary
+    console.print(f"\n[bold green]Patent enrichment complete![/bold green]")
+    console.print(f"  Enriched: {enriched_count}")
+    console.print(f"  With patent info: {detected_count}")
+    console.print(f"  Errors: {error_count}")
+    console.print(f"\n[bold]By Status:[/bold]")
+    for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
+        console.print(f"  {status}: {count}")
+
+
+@main.command()
 @click.option("--university", "-u", type=str, help="Show stats for specific university")
 def patent_stats(university: Optional[str]) -> None:
     """Show patent status statistics.

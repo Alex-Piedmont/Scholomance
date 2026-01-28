@@ -643,6 +643,42 @@ class Database:
 
             return True
 
+    def update_technology_with_enriched_data(
+        self,
+        tech_id: int,
+        raw_data: dict,
+        patent_status: str,
+        patent_confidence: float,
+        patent_source: str,
+    ) -> bool:
+        """
+        Update a technology with enriched raw_data and patent status.
+
+        Used by enrich-patents command to store data fetched from detail pages.
+
+        Args:
+            tech_id: Database ID of the technology
+            raw_data: Enriched raw data including detail page info
+            patent_status: Detected patent status
+            patent_confidence: Detection confidence
+            patent_source: Detection source
+
+        Returns:
+            True if successful, False if technology not found
+        """
+        with self.get_session() as session:
+            tech = session.query(Technology).filter(Technology.id == tech_id).first()
+            if not tech:
+                return False
+
+            tech.raw_data = raw_data
+            tech.patent_status = patent_status
+            tech.patent_status_confidence = patent_confidence
+            tech.patent_status_source = patent_source
+            tech.last_patent_check_at = datetime.now(timezone.utc)
+
+            return True
+
     def get_technologies_for_patent_detection(
         self,
         university: Optional[str] = None,

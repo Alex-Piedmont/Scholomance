@@ -5,6 +5,7 @@ import re
 from typing import AsyncIterator, Optional
 
 import aiohttp
+from bs4 import BeautifulSoup
 from loguru import logger
 
 from .base import BaseScraper, Technology
@@ -191,11 +192,17 @@ class JHUScraper(BaseScraper):
         """
         Scrape detailed information from a technology's detail page.
 
+        JHU detail pages contain structured patent information including:
+        - Patent number
+        - Serial number
+        - Issue Date
+        - Status (Granted/Pending/etc.)
+
         Args:
             url: The URL of the technology detail page
 
         Returns:
-            Dictionary with detailed technology information
+            Dictionary with detailed technology information including patent info
         """
         await self._init_session()
 
@@ -205,12 +212,101 @@ class JHUScraper(BaseScraper):
                     return None
 
                 html = await response.text()
+                soup = BeautifulSoup(html, "lxml")
+
                 detail = {"url": url}
+
+                # Get full description
+                desc_div = soup.find("div", class_="technology-description")
+                if desc_div:
+                    detail["full_description"] = desc_div.get_text(strip=True)
+
+                # Extract patent information from structured HTML
+                patent_info = self._extract_patent_info_from_html(soup, html)
+                if patent_info:
+                    detail.update(patent_info)
+
                 return detail
 
         except Exception as e:
             logger.debug(f"Error fetching technology detail: {e}")
             return None
+
+    def _extract_patent_info_from_html(self, soup, html: str) -> dict:
+        """Extract structured patent information from JHU HTML page."""
+        patent_info = {}
+        patent_numbers = []
+        serial_numbers = []
+
+        # JHU displays patent info in structured format
+        # Look for patent number patterns
+        us_patent_matches = re.findall(
+            r'(?:Patent|Patent\s*#?|Patent\s*Number)[:\s]*(\d{1,3}(?:,\d{3})+|\d{7,10})',
+            html,
+            re.IGNORECASE
+        )
+        for match in us_patent_matches:
+            clean_num = match.replace(",", "")
+            if len(clean_num) >= 7:
+                patent_numbers.append(match)
+
+        # Look for serial numbers (application numbers)
+        serial_matches = re.findall(
+            r'(?:Serial|Serial\s*#?|Application\s*#?)[:\s]*(\d{2}/\d{3},?\d{3})',
+            html,
+            re.IGNORECASE
+        )
+        serial_numbers.extend(serial_matches)
+
+        if patent_numbers:
+            patent_info["patent_numbers"] = list(set(patent_numbers))
+            patent_info["ip_status"] = "Granted"
+
+        if serial_numbers:
+            patent_info["serial_numbers"] = list(set(serial_numbers))
+
+        # Look for explicit Status field
+        status_match = re.search(
+            r'Status[:\s]*([A-Za-z]+)',
+            html,
+            re.IGNORECASE
+        )
+        if status_match:
+            status_text = status_match.group(1).lower()
+            if "granted" in status_text or "issued" in status_text:
+                patent_info["ip_status"] = "Granted"
+            elif "pending" in status_text:
+                if "ip_status" not in patent_info:
+                    patent_info["ip_status"] = "Pending"
+            elif "filed" in status_text:
+                if "ip_status" not in patent_info:
+                    patent_info["ip_status"] = "Filed"
+            elif "provisional" in status_text:
+                if "ip_status" not in patent_info:
+                    patent_info["ip_status"] = "Provisional"
+
+        # Look for Issue Date
+        date_match = re.search(
+            r'Issue\s*Date[:\s]*(\d{1,2}/\d{1,2}/\d{4})',
+            html,
+            re.IGNORECASE
+        )
+        if date_match:
+            patent_info["issue_date"] = date_match.group(1)
+
+        html_lower = html.lower()
+
+        # Fallback: check for patent pending keywords
+        if "patent pending" in html_lower or "patent-pending" in html_lower:
+            if "ip_status" not in patent_info:
+                patent_info["ip_status"] = "Pending"
+
+        # Check for PCT/international applications
+        if re.search(r'\bpct\b', html_lower) or "international application" in html_lower:
+            if "ip_status" not in patent_info:
+                patent_info["ip_status"] = "Filed"
+
+        return patent_info
 
     # Backwards compatibility methods
     async def _init_browser(self) -> None:
