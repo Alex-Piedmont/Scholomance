@@ -205,6 +205,16 @@ class UGAScraper(BaseScraper):
                 raw_data["ip_url"] = detail.get("ipUrl")
                 raw_data["ip_date"] = detail.get("ipDate")
                 raw_data["publications"] = detail.get("publications")
+                # Store full content fields for richer detail display
+                raw_data["abstract"] = detail.get("abstract")
+                raw_data["other"] = detail.get("other")
+                raw_data["benefit"] = detail.get("benefit")
+                raw_data["market_application"] = detail.get("marketApplication")
+                # Store researchers, documents, contacts, and tags
+                raw_data["researchers"] = detail.get("_members")
+                raw_data["documents"] = detail.get("_documents")
+                raw_data["contacts"] = detail.get("_contacts")
+                raw_data["flintbox_tags"] = detail.get("_tags")
 
             return Technology(
                 university="uga",
@@ -293,7 +303,54 @@ class UGAScraper(BaseScraper):
                     return None
 
                 data = await response.json()
-                return data.get("data", {}).get("attributes", {})
+                attributes = data.get("data", {}).get("attributes", {})
+
+                # Extract members (researchers) from included data
+                included = data.get("included", [])
+                members = []
+                documents = []
+                contacts = []
+                tags = []
+
+                for item in included:
+                    item_type = item.get("type")
+                    item_attrs = item.get("attributes", {})
+
+                    if item_type == "member":
+                        members.append({
+                            "name": item_attrs.get("fullName"),
+                            "email": item_attrs.get("email"),
+                            "expertise": item_attrs.get("expertise"),
+                            "profile": item_attrs.get("profile"),
+                        })
+                    elif item_type == "document":
+                        documents.append({
+                            "name": item_attrs.get("name"),
+                            "url": item_attrs.get("fileUrl"),
+                            "size": item_attrs.get("fileSize"),
+                        })
+                    elif item_type == "contact":
+                        contacts.append({
+                            "name": item_attrs.get("fullName"),
+                            "email": item_attrs.get("email"),
+                            "phone": item_attrs.get("phoneNumber"),
+                        })
+                    elif item_type == "tag":
+                        tag_name = item_attrs.get("name")
+                        if tag_name:
+                            tags.append(tag_name)
+
+                # Add extracted data to attributes
+                if members:
+                    attributes["_members"] = members
+                if documents:
+                    attributes["_documents"] = documents
+                if contacts:
+                    attributes["_contacts"] = contacts
+                if tags:
+                    attributes["_tags"] = tags
+
+                return attributes
 
         except Exception as e:
             logger.debug(f"Error fetching technology detail: {e}")

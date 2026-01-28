@@ -77,6 +77,7 @@ class JHUScraper(BaseScraper):
                     "query": "",
                     "hitsPerPage": 1000,
                     "filters": f'"Technology Classifications.lvl0":"{category}"',
+                    "attributesToRetrieve": ["*"],
                 }
 
                 try:
@@ -138,10 +139,20 @@ class JHUScraper(BaseScraper):
             tech_id = item.get("techID", "") or str(item.get("objectID", ""))
             url = item.get("Url", "")
 
-            # Get description
-            description = item.get("descriptionTruncated", "")
-            if description:
-                description = description.strip()
+            # Get full description (preferred) or truncated
+            full_description = item.get("descriptionFull", "")
+            truncated_description = item.get("descriptionTruncated", "")
+
+            # Parse structured sections from full description
+            sections = self._parse_description_sections(full_description) if full_description else {}
+
+            # Use short description from sections, or truncated, or full text
+            description = (
+                sections.get("short_description")
+                or sections.get("abstract")
+                or truncated_description.strip()
+                or full_description[:2000].strip()
+            )
 
             # Parse categories from finalPathCategories
             categories = []
@@ -152,11 +163,17 @@ class JHUScraper(BaseScraper):
                     if len(parts) > 1:
                         categories.append(parts[-1].strip())
 
-            # Parse inventors
+            # Parse inventors from structured field or path string
             inventors = []
-            inventors_str = item.get("finalPathInventors", "")
-            if inventors_str:
-                inventors = [inv.strip() for inv in inventors_str.split(",") if inv.strip()]
+            inventors_list = item.get("inventors")
+            if isinstance(inventors_list, list):
+                inventors = [inv.strip() for inv in inventors_list if isinstance(inv, str) and inv.strip()]
+            if not inventors:
+                inventors_str = item.get("finalPathInventors", "")
+                if inventors_str:
+                    inventors = [inv.strip() for inv in inventors_str.split(",") if inv.strip()]
+            if not inventors and sections.get("inventors"):
+                inventors = sections["inventors"]
 
             # Get patent status
             patent_statuses = item.get("patentStatuses", [])
@@ -167,11 +184,20 @@ class JHUScraper(BaseScraper):
                 "title": title,
                 "url": url,
                 "description": description,
+                "full_description": full_description if full_description else None,
                 "disclosure_date": item.get("disclosureDate"),
                 "categories": categories,
                 "inventors": inventors,
                 "patent_statuses": patent_statuses,
+                "client_departments": item.get("clientDepartments"),
             }
+
+            # Add parsed sections
+            for key in ("abstract", "background", "short_description", "advantages",
+                        "applications", "publications", "ip_status", "market_opportunity",
+                        "development_stage", "benefit", "technical_problem", "solution"):
+                if sections.get(key):
+                    raw_data[key] = sections[key]
 
             return Technology(
                 university="jhu",
@@ -187,6 +213,73 @@ class JHUScraper(BaseScraper):
         except Exception as e:
             logger.debug(f"Error parsing Algolia hit: {e}")
             return None
+
+    @staticmethod
+    def _parse_description_sections(text: str) -> dict:
+        """Parse structured sections from Algolia descriptionFull text."""
+        import html as html_mod
+
+        text = html_mod.unescape(text)
+
+        section_patterns = [
+            ("short_description", r"SHORT\s+DESCRIPTION"),
+            ("abstract", r"ABSTRACT"),
+            ("background", r"BACKGROUND"),
+            ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
+            ("development_stage", r"DEVELOPMENT\s+STAGE"),
+            ("applications", r"APPLICATIONS"),
+            ("advantages", r"ADVANTAGES"),
+            ("publications", r"PUBLICATIONS"),
+            ("ip_status", r"IP\s+STATUS"),
+            ("benefit", r"BENEFITS?"),
+            ("inventors_section", r"INVENTORS?"),
+            ("technical_problem", r"TECHNICAL\s+PROBLEM"),
+            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
+        ]
+
+        all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
+        header_re = re.compile(rf"\s*(?:{all_headers})\s*", re.IGNORECASE)
+
+        sections = {}
+        parts = header_re.split(text)
+
+        current_key = None
+        for part in parts:
+            if part is None:
+                continue
+            part = part.strip()
+            if not part:
+                continue
+
+            matched_key = None
+            for key, pat in section_patterns:
+                if re.fullmatch(pat, part, re.IGNORECASE):
+                    matched_key = key
+                    break
+
+            if matched_key:
+                current_key = matched_key
+            elif current_key:
+                if current_key == "inventors_section":
+                    sections[current_key] = part
+                else:
+                    cleaned = re.sub(r"\s+", " ", part).strip()
+                    if cleaned:
+                        sections[current_key] = cleaned
+
+        inv_text = sections.pop("inventors_section", "")
+        if inv_text:
+            inv_list = re.split(r"\s{2,}|\t|\n|•|;", inv_text)
+            inventors = [
+                re.sub(r"\*$", "", inv.strip().rstrip(",")).strip()
+                for inv in inv_list
+                if inv.strip() and len(inv.strip()) > 1
+                and not re.match(r"^[\d\W]+$", inv.strip())
+            ]
+            if inventors:
+                sections["inventors"] = inventors
+
+        return sections
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
         """
