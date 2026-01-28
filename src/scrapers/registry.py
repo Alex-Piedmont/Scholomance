@@ -97,6 +97,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="HarvardScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="utaustin",
+        name="University of Texas at Austin",
+        base_url="https://utotc.technologypublisher.com",
+        scraper_class="UTAustinScraper",
+        delay_seconds=0.2,
+    ),
 ]
 
 

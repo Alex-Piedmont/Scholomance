@@ -11,6 +11,7 @@ from .jhu import JHUScraper
 from .columbia import ColumbiaScraper
 from .upenn import UPennScraper
 from .harvard import HarvardScraper
+from .utaustin import UTAustinScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -24,6 +25,7 @@ SCRAPERS = {
     "columbia": ColumbiaScraper,
     "upenn": UPennScraper,
     "harvard": HarvardScraper,
+    "utaustin": UTAustinScraper,
 }
 
 
@@ -62,6 +64,7 @@ __all__ = [
     "ColumbiaScraper",
     "UPennScraper",
     "HarvardScraper",
+    "UTAustinScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",
