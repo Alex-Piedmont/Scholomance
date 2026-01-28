@@ -5,10 +5,14 @@ import re
 from typing import AsyncIterator, Optional
 from urllib.parse import urljoin, urlparse, parse_qs
 
+import aiohttp
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, Page, Browser
 from loguru import logger
 
 from .base import BaseScraper, Technology
+
+DETAIL_CONCURRENCY = 5
 
 
 class StanfordScraper(BaseScraper):
@@ -25,22 +29,28 @@ class StanfordScraper(BaseScraper):
         )
         self._browser: Optional[Browser] = None
         self._page: Optional[Page] = None
+        self._session: Optional[aiohttp.ClientSession] = None
 
     @property
     def name(self) -> str:
         return "Stanford TechFinder"
 
     async def _init_browser(self) -> None:
-        """Initialize Playwright browser."""
+        """Initialize Playwright browser and aiohttp session."""
         if self._browser is None:
             playwright = await async_playwright().start()
             self._browser = await playwright.chromium.launch(headless=True)
             self._page = await self._browser.new_page()
             await self._page.set_viewport_size({"width": 1920, "height": 1080})
             logger.debug("Browser initialized")
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
 
     async def _close_browser(self) -> None:
-        """Close Playwright browser."""
+        """Close Playwright browser and aiohttp session."""
+        if self._session:
+            await self._session.close()
+            self._session = None
         if self._page:
             await self._page.close()
             self._page = None
@@ -92,6 +102,26 @@ class StanfordScraper(BaseScraper):
             logger.warning(f"Could not determine total pages: {e}")
             return 100
 
+    async def _fetch_detail(self, tech: Technology, semaphore: asyncio.Semaphore) -> Technology:
+        """Fetch detail page for a technology using aiohttp and merge data."""
+        async with semaphore:
+            try:
+                detail = await self.scrape_technology_detail(tech.url)
+                if detail:
+                    tech.raw_data.update(detail)
+                    if detail.get("full_description") and not tech.description:
+                        tech.description = detail["full_description"]
+                    if detail.get("inventors"):
+                        tech.raw_data["inventors"] = detail["inventors"]
+                    if detail.get("applications"):
+                        tech.raw_data["applications"] = detail["applications"]
+                    if detail.get("advantages"):
+                        tech.raw_data["advantages"] = detail["advantages"]
+                await asyncio.sleep(self.delay_seconds)
+            except Exception as e:
+                logger.debug(f"Error fetching detail for {tech.url}: {e}")
+        return tech
+
     async def scrape(self) -> AsyncIterator[Technology]:
         """Scrape all technologies from Stanford TechFinder."""
         try:
@@ -100,28 +130,37 @@ class StanfordScraper(BaseScraper):
             total_pages = await self._get_total_pages()
             self.log_progress(f"Starting scrape of approximately {total_pages} pages")
 
+            all_technologies: list[Technology] = []
+
             for page_num in range(1, total_pages + 1):
                 try:
                     technologies = await self.scrape_page(page_num)
 
                     if not technologies:
-                        # No more technologies found, stop pagination
                         self.log_progress(f"No technologies on page {page_num}, stopping")
                         break
 
-                    for tech in technologies:
-                        self._tech_count += 1
-                        yield tech
+                    all_technologies.extend(technologies)
 
                     self._page_count += 1
                     if page_num % 10 == 0:
-                        self.log_progress(f"Scraped page {page_num}/{total_pages}, found {self._tech_count} technologies")
+                        self.log_progress(f"Scraped page {page_num}/{total_pages}, found {len(all_technologies)} technologies")
 
                     await self.delay()
 
                 except Exception as e:
                     self.log_error(f"Error scraping page {page_num}", e)
                     continue
+
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+
+            semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+            tasks = [self._fetch_detail(tech, semaphore) for tech in all_technologies]
+            enriched = await asyncio.gather(*tasks)
+
+            for tech in enriched:
+                self._tech_count += 1
+                yield tech
 
             self.log_progress(f"Completed scraping: {self._tech_count} technologies from {self._page_count} pages")
 
@@ -232,43 +271,87 @@ class StanfordScraper(BaseScraper):
             return []
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """
-        Scrape detailed information from a technology's detail page.
-
-        This can be used to get additional information not available on the list page.
-        """
-        if not self._page:
-            await self._init_browser()
+        """Scrape detailed information from a technology's detail page using aiohttp."""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
 
         try:
-            await self._page.goto(url, wait_until="networkidle", timeout=30000)
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Detail page returned {resp.status}: {url}")
+                    return None
+                html = await resp.text()
 
-            detail = {}
+            soup = BeautifulSoup(html, "html.parser")
+            detail: dict = {}
 
-            # Get full description
-            desc_elem = await self._page.query_selector(
-                ".field--name-body, article .content, main .content"
-            )
-            if desc_elem:
-                detail["full_description"] = await desc_elem.inner_text()
+            # Docket number from eyebrow
+            eyebrow = soup.select_one("div.docket__eyebrow")
+            if eyebrow:
+                text = eyebrow.get_text(strip=True)
+                match = re.search(r"S\d{2}-\d{3}", text)
+                if match:
+                    detail["docket_number"] = match.group(0)
 
-            # Get innovators/inventors
-            innovator_links = await self._page.query_selector_all("a[href*='innovator']")
-            if innovator_links:
-                detail["inventors"] = []
-                for link in innovator_links:
-                    name = await link.inner_text()
-                    if name.strip():
-                        detail["inventors"].append(name.strip())
+            # Description from docket__text
+            desc_div = soup.select_one("div.docket__text")
+            if desc_div:
+                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+                detail["description_html"] = str(desc_div)
 
-            # Get categories/keywords
-            keyword_links = await self._page.query_selector_all("a[href*='keywords']")
-            if keyword_links:
-                detail["categories"] = []
-                for link in keyword_links:
-                    cat = await link.inner_text()
-                    if cat.strip():
-                        detail["categories"].append(cat.strip())
+                # Related portfolio: links to other /technology/ pages within description
+                related = []
+                for a in desc_div.select("a[href*='/technology/']"):
+                    href = a.get("href", "")
+                    full = urljoin(self.BASE_URL, href)
+                    if full != url:
+                        related.append({"title": a.get_text(strip=True), "url": full})
+                if related:
+                    detail["related_portfolio"] = related
+
+            # Parse docket__section divs by h2 heading
+            for section in soup.select("div.docket__section"):
+                h2 = section.select_one("h2")
+                if not h2:
+                    continue
+                heading = h2.get_text(strip=True).lower()
+
+                items = [li.get_text(strip=True) for li in section.select("li") if li.get_text(strip=True)]
+
+                if "application" in heading:
+                    detail["applications"] = items
+                elif "advantage" in heading:
+                    detail["advantages"] = items
+                elif "publication" in heading:
+                    # Preserve links for publications
+                    pub_items = []
+                    for li in section.select("li"):
+                        a = li.select_one("a")
+                        if a and a.get("href"):
+                            pub_items.append({"text": li.get_text(strip=True), "url": a["href"]})
+                        elif li.get_text(strip=True):
+                            pub_items.append({"text": li.get_text(strip=True)})
+                    detail["publications"] = pub_items
+                elif "innovator" in heading:
+                    detail["inventors"] = items
+                elif "licensing contact" in heading:
+                    contact: dict = {}
+                    name_el = section.select_one(".people__name")
+                    if name_el:
+                        contact["name"] = name_el.get_text(strip=True)
+                    title_el = section.select_one(".people__title")
+                    if title_el:
+                        contact["title"] = title_el.get_text(strip=True)
+                    mailto = section.select_one("a[href^='mailto:']")
+                    if mailto:
+                        contact["email"] = mailto["href"].replace("mailto:", "")
+                    if contact:
+                        detail["licensing_contact"] = contact
+
+            # PDF link
+            pdf_link = soup.select_one("a[href*='/print/pdf/']")
+            if pdf_link:
+                detail["pdf_url"] = urljoin(self.BASE_URL, pdf_link["href"])
 
             return detail
 

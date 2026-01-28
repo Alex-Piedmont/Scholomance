@@ -63,6 +63,11 @@ export function DetailPage() {
   const documents = rawData?.documents as Array<{ name?: string; url?: string; size?: number }> | undefined
   const contactsList = rawData?.contacts as Array<{ name?: string; email?: string; phone?: string }> | undefined
   const flintboxTags = rawData?.flintbox_tags as string[] | undefined
+  // Stanford-specific fields
+  const docketNumber = rawData?.docket_number as string | undefined
+  const licensingContact = rawData?.licensing_contact as { name?: string; title?: string; email?: string } | undefined
+  const pdfUrl = rawData?.pdf_url as string | undefined
+  const relatedPortfolio = rawData?.related_portfolio as Array<{ title?: string; url?: string }> | undefined
   // Algolia-sourced structured sections
   const background = rawData?.background as string | undefined
   const shortDescription = rawData?.short_description as string | undefined
@@ -137,6 +142,12 @@ export function DetailPage() {
           }`}>
             Patent: {formatPatentStatus(tech.patent_status)}
           </span>
+          {docketNumber && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span>Docket: {docketNumber}</span>
+            </>
+          )}
           {updatedDate && (
             <>
               <span className="text-gray-300">|</span>
@@ -477,6 +488,61 @@ export function DetailPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                           </svg>
                           {doc.name || 'Document'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Licensing Contact (Stanford) */}
+              {licensingContact && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Licensing Contact</h3>
+                  <div className="text-sm text-gray-700">
+                    {licensingContact.name && <div className="font-medium">{licensingContact.name}</div>}
+                    {licensingContact.title && <div className="text-gray-500">{licensingContact.title}</div>}
+                    {licensingContact.email && (
+                      <a href={`mailto:${licensingContact.email}`} className="text-blue-600 hover:underline">
+                        {licensingContact.email}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* PDF Download (Stanford) */}
+              {pdfUrl && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Documents</h3>
+                  <a
+                    href={pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Download Docket PDF
+                  </a>
+                </div>
+              )}
+
+              {/* Related Portfolio (Stanford) */}
+              {relatedPortfolio && relatedPortfolio.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Related Technologies</h3>
+                  <ul className="space-y-1">
+                    {relatedPortfolio.map((item, i) => (
+                      <li key={i}>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-600 hover:underline"
+                        >
+                          {item.title || 'Related technology'}
                         </a>
                       </li>
                     ))}
