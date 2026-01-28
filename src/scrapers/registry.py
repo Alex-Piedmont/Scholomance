@@ -244,6 +244,27 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="IowaScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="princeton",
+        name="Princeton University",
+        base_url="https://puotl.technologypublisher.com",
+        scraper_class="PrincetonScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="michiganstate",
+        name="Michigan State University",
+        base_url="https://msut.technologypublisher.com",
+        scraper_class="MichiganStateScraper",
+        delay_seconds=0.3,
+    ),
+    UniversityConfig(
+        code="texasstate",
+        name="Texas State University",
+        base_url="https://txstate.technologypublisher.com",
+        scraper_class="TexasStateScraper",
+        delay_seconds=0.3,
+    ),
 ]
 
 

@@ -34,6 +34,10 @@ from .ttu import TTUScraper
 from .uconn import UConnScraper
 from .louisville import LouisvilleScraper
 from .iowa import IowaScraper
+from .rss_base import RSSBaseScraper
+from .princeton import PrincetonScraper
+from .michiganstate import MichiganStateScraper
+from .texasstate import TexasStateScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -68,6 +72,9 @@ SCRAPERS = {
     "uconn": UConnScraper,
     "louisville": LouisvilleScraper,
     "iowa": IowaScraper,
+    "princeton": PrincetonScraper,
+    "michiganstate": MichiganStateScraper,
+    "texasstate": TexasStateScraper,
 }
 
 
@@ -129,6 +136,10 @@ __all__ = [
     "UConnScraper",
     "LouisvilleScraper",
     "IowaScraper",
+    "RSSBaseScraper",
+    "PrincetonScraper",
+    "MichiganStateScraper",
+    "TexasStateScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",
