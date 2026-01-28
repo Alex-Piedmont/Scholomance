@@ -7,6 +7,7 @@ from .uga import UGAScraper
 from .mit import MITScraper
 from .umich import UMichScraper
 from .uf import UFScraper
+from .jhu import JHUScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -16,6 +17,7 @@ SCRAPERS = {
     "mit": MITScraper,
     "umich": UMichScraper,
     "uf": UFScraper,
+    "jhu": JHUScraper,
 }
 
 
@@ -50,6 +52,7 @@ __all__ = [
     "MITScraper",
     "UMichScraper",
     "UFScraper",
+    "JHUScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",

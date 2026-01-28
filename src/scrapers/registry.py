@@ -69,6 +69,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UFScraper",
         delay_seconds=0.5,
     ),
+    UniversityConfig(
+        code="jhu",
+        name="Johns Hopkins University",
+        base_url="https://jhu.technologypublisher.com",
+        scraper_class="JHUScraper",
+        delay_seconds=0.5,
+    ),
 ]
 
 
