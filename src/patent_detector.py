@@ -185,7 +185,7 @@ class PatentDetector:
 
         # Check for Flintbox publications field (HTML with patent info)
         publications = raw_data.get("publications")
-        if publications:
+        if isinstance(publications, str) and publications:
             result = self._parse_publications_html(publications)
             if result:
                 return result

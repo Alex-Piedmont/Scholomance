@@ -309,8 +309,8 @@ class StanfordScraper(BaseScraper):
                 if related:
                     detail["related_portfolio"] = related
 
-            # Parse docket__section divs by h2 heading
-            for section in soup.select("div.docket__section"):
+            # Parse docket__section elements by h2 heading
+            for section in soup.select(".docket__section"):
                 h2 = section.select_one("h2")
                 if not h2:
                     continue
@@ -344,7 +344,8 @@ class StanfordScraper(BaseScraper):
                         contact["title"] = title_el.get_text(strip=True)
                     mailto = section.select_one("a[href^='mailto:']")
                     if mailto:
-                        contact["email"] = mailto["href"].replace("mailto:", "")
+                        email = mailto["href"].replace("mailto:", "").split("?")[0]
+                        contact["email"] = email
                     if contact:
                         detail["licensing_contact"] = contact
 
