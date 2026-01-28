@@ -104,6 +104,13 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UTAustinScraper",
         delay_seconds=0.2,
     ),
+    UniversityConfig(
+        code="ucsystem",
+        name="University of California System",
+        base_url="https://techtransfer.universityofcalifornia.edu",
+        scraper_class="UCSystemScraper",
+        delay_seconds=0.3,
+    ),
 ]
 
 
