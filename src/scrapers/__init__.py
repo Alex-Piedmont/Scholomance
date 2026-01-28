@@ -13,6 +13,9 @@ from .upenn import UPennScraper
 from .harvard import HarvardScraper
 from .utaustin import UTAustinScraper
 from .ucsystem import UCSystemScraper
+from .cornell import CornellScraper
+from .cmu import CMUScraper
+from .uiuc import UIUCScraper
 
 # Registry of available scrapers
 SCRAPERS = {
@@ -28,6 +31,9 @@ SCRAPERS = {
     "harvard": HarvardScraper,
     "utaustin": UTAustinScraper,
     "ucsystem": UCSystemScraper,
+    "cornell": CornellScraper,
+    "cmu": CMUScraper,
+    "uiuc": UIUCScraper,
 }
 
 
@@ -68,6 +74,9 @@ __all__ = [
     "HarvardScraper",
     "UTAustinScraper",
     "UCSystemScraper",
+    "CornellScraper",
+    "CMUScraper",
+    "UIUCScraper",
     "SCRAPERS",
     "get_scraper",
     "list_scrapers",

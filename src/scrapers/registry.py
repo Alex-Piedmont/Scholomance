@@ -111,6 +111,27 @@ UNIVERSITY_CONFIGS: list[UniversityConfig] = [
         scraper_class="UCSystemScraper",
         delay_seconds=0.3,
     ),
+    UniversityConfig(
+        code="cornell",
+        name="Cornell University",
+        base_url="https://cornell.flintbox.com",
+        scraper_class="CornellScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="cmu",
+        name="Carnegie Mellon University",
+        base_url="https://cmu.flintbox.com",
+        scraper_class="CMUScraper",
+        delay_seconds=0.5,
+    ),
+    UniversityConfig(
+        code="uiuc",
+        name="University of Illinois Urbana-Champaign",
+        base_url="https://illinois.flintbox.com",
+        scraper_class="UIUCScraper",
+        delay_seconds=0.5,
+    ),
 ]
 
 
