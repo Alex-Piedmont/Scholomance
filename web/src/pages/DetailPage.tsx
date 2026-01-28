@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { Header } from '../components/Layout'
-import { MetadataPanel, IframeEmbed, RawDataViewer } from '../components/Detail'
+import { MetadataPanel, SourceLink, RawDataViewer } from '../components/Detail'
 import { useTechnology } from '../hooks'
 
 export function DetailPage() {
@@ -112,8 +112,8 @@ export function DetailPage() {
             </div>
           )}
 
-          {/* Iframe Embed */}
-          <IframeEmbed url={tech.url} title={tech.title} />
+          {/* Source Link */}
+          <SourceLink url={tech.url} />
 
           {/* Raw Data */}
           <RawDataViewer data={tech.raw_data} />
