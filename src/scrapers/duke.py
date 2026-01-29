@@ -5,10 +5,13 @@ import re
 from typing import AsyncIterator, Optional
 from urllib.parse import urljoin
 
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from loguru import logger
 
 from .base import BaseScraper, Technology
+
+DETAIL_CONCURRENCY = 3
 
 
 class DukeScraper(BaseScraper):
@@ -103,12 +106,14 @@ class DukeScraper(BaseScraper):
             return 50  # Conservative estimate
 
     async def scrape(self) -> AsyncIterator[Technology]:
-        """Scrape all technologies from Duke OTC."""
+        """Scrape all technologies from Duke OTC with detail page enrichment."""
         try:
             await self._init_browser()
 
             total_pages = await self._get_total_pages()
             self.log_progress(f"Starting scrape of {total_pages} pages")
+
+            all_technologies: list[Technology] = []
 
             for page_num in range(1, total_pages + 1):
                 try:
@@ -118,15 +123,13 @@ class DukeScraper(BaseScraper):
                         self.log_progress(f"No technologies on page {page_num}, stopping")
                         break
 
-                    for tech in technologies:
-                        self._tech_count += 1
-                        yield tech
+                    all_technologies.extend(technologies)
 
                     self._page_count += 1
                     if page_num % 10 == 0:
                         self.log_progress(
                             f"Scraped page {page_num}/{total_pages}, "
-                            f"found {self._tech_count} technologies"
+                            f"found {len(all_technologies)} technologies"
                         )
 
                     await self.delay()
@@ -134,6 +137,35 @@ class DukeScraper(BaseScraper):
                 except Exception as e:
                     self.log_error(f"Error scraping page {page_num}", e)
                     continue
+
+            # Fetch detail pages concurrently using Playwright
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+            semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+
+            # Duke blocks aiohttp, so we use Playwright sequentially for details
+            for i, tech in enumerate(all_technologies):
+                try:
+                    detail = await self.scrape_technology_detail(tech.url)
+                    if detail:
+                        tech.raw_data.update(detail)
+                        if detail.get("full_description") and not tech.description:
+                            tech.description = detail["full_description"]
+                        if detail.get("inventors"):
+                            tech.innovators = detail["inventors"]
+                        if detail.get("categories"):
+                            tech.keywords = detail["categories"]
+                        if detail.get("patent_status"):
+                            tech.patent_status = detail["patent_status"]
+                    await asyncio.sleep(self.delay_seconds)
+                except Exception as e:
+                    logger.debug(f"Error fetching detail for {tech.url}: {e}")
+
+                if (i + 1) % 20 == 0:
+                    self.log_progress(f"Enriched {i + 1}/{len(all_technologies)} technologies")
+
+            for tech in all_technologies:
+                self._tech_count += 1
+                yield tech
 
             self.log_progress(
                 f"Completed scraping: {self._tech_count} technologies "
@@ -231,7 +263,7 @@ class DukeScraper(BaseScraper):
             return []
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """Scrape detailed information from a technology's detail page."""
+        """Scrape detailed information from a technology's detail page using Playwright."""
         if not self._page:
             await self._init_browser()
 
@@ -239,13 +271,88 @@ class DukeScraper(BaseScraper):
             await self._page.goto(url, wait_until="networkidle", timeout=60000)
             await asyncio.sleep(1)
 
-            detail = {"url": url}
+            # Check for bot detection
+            title = await self._page.title()
+            if "bot" in title.lower():
+                logger.debug(f"Bot detection on detail page: {url}")
+                return None
 
-            # Get full description
-            content = await self._page.query_selector("main, .content, article")
-            if content:
-                text = await content.inner_text()
-                detail["full_description"] = text.strip()
+            html_content = await self._page.content()
+            soup = BeautifulSoup(html_content, "html.parser")
+            detail: dict = {"url": url}
+
+            # Get main content from article or main element
+            main = soup.select_one("article, main, .entry-content, .content")
+            if main:
+                # Full description from all paragraphs
+                paragraphs = main.find_all("p")
+                desc_parts = []
+                for p in paragraphs:
+                    t = p.get_text(strip=True)
+                    if t and len(t) > 20:
+                        desc_parts.append(t)
+                if desc_parts:
+                    detail["full_description"] = "\n".join(desc_parts)
+
+                # Look for structured sections with headings
+                for heading in main.find_all(["h2", "h3", "h4", "strong"]):
+                    htxt = heading.get_text(strip=True).lower()
+                    items = []
+                    nxt = heading.find_next_sibling()
+                    while nxt:
+                        if nxt.name in ("h2", "h3", "h4", "strong") and nxt.get_text(strip=True):
+                            break
+                        if nxt.name == "ul":
+                            for li in nxt.find_all("li"):
+                                t = li.get_text(strip=True)
+                                if t:
+                                    items.append(t)
+                        elif nxt.name == "p" and nxt.get_text(strip=True):
+                            items.append(nxt.get_text(strip=True))
+                        nxt = nxt.find_next_sibling()
+
+                    if not items:
+                        continue
+                    if "advantage" in htxt or "benefit" in htxt:
+                        detail["advantages"] = items
+                    elif "application" in htxt or "use" in htxt:
+                        detail["applications"] = items
+                    elif "inventor" in htxt or "researcher" in htxt:
+                        detail["inventors"] = items
+                    elif "patent" in htxt or "ip" in htxt:
+                        detail["patent_info"] = " ".join(items)
+                    elif "publication" in htxt or "reference" in htxt:
+                        detail["publications"] = [{"text": t} for t in items]
+                    elif "status" in htxt or "stage" in htxt or "development" in htxt:
+                        detail["development_stage"] = " ".join(items)
+
+                # Categories from tags/categories
+                categories = []
+                for a in main.find_all("a", href=True):
+                    href = a.get("href", "")
+                    if "/technologies/c/" in href or "category" in href:
+                        cat = a.get_text(strip=True)
+                        if cat and cat not in categories:
+                            categories.append(cat)
+                if categories:
+                    detail["categories"] = categories
+
+            # Contact from footer or sidebar
+            contact = {}
+            email_link = soup.select_one("a[href^='mailto:']")
+            if email_link:
+                contact["email"] = email_link["href"].replace("mailto:", "").split("?")[0]
+            if contact:
+                detail["contact"] = contact
+
+            # Patent status from text
+            text = soup.get_text().lower()
+            if "patent pending" in text or "patent-pending" in text:
+                detail["patent_status"] = "Pending"
+            elif "patent filed" in text:
+                detail["patent_status"] = "Filed"
+            elif "patented" in text or "patent granted" in text:
+                detail["patent_status"] = "Granted"
 
             return detail
 

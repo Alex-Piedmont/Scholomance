@@ -10,6 +10,8 @@ from loguru import logger
 
 from .base import BaseScraper, Technology
 
+DETAIL_CONCURRENCY = 5
+
 
 class UMichScraper(BaseScraper):
     """Scraper for University of Michigan's available inventions portal."""
@@ -30,28 +32,44 @@ class UMichScraper(BaseScraper):
         return "University of Michigan Innovation Partnerships"
 
     async def _init_session(self) -> None:
-        """Initialize aiohttp session."""
         if self._session is None:
             self._session = aiohttp.ClientSession()
             logger.debug("HTTP session initialized for UMich")
 
     async def _close_session(self) -> None:
-        """Close aiohttp session."""
         if self._session:
             await self._session.close()
             self._session = None
             logger.debug("HTTP session closed")
 
+    async def _fetch_detail(self, tech: Technology, semaphore: asyncio.Semaphore) -> Technology:
+        """Fetch detail page for a technology and merge data."""
+        async with semaphore:
+            try:
+                detail = await self.scrape_technology_detail(tech.url)
+                if detail:
+                    tech.raw_data.update(detail)
+                    if detail.get("full_description") and not tech.description:
+                        tech.description = detail["full_description"]
+                    if detail.get("inventors"):
+                        tech.innovators = detail["inventors"]
+                    if detail.get("categories"):
+                        tech.keywords = detail["categories"]
+                    if detail.get("patent_status"):
+                        tech.patent_status = detail["patent_status"]
+                await asyncio.sleep(self.delay_seconds)
+            except Exception as e:
+                logger.debug(f"Error fetching detail for {tech.url}: {e}")
+        return tech
+
     async def scrape(self) -> AsyncIterator[Technology]:
-        """Scrape all technologies from UMich."""
+        """Scrape all technologies from UMich with detail page enrichment."""
         try:
             await self._init_session()
 
             self.log_progress("Fetching technology list from API")
 
-            # The autocomplete API returns all technologies with empty term
             params = {"term": ""}
-
             async with self._session.get(self.API_URL, params=params) as response:
                 if response.status != 200:
                     self.log_error(f"API returned status {response.status}")
@@ -61,32 +79,32 @@ class UMichScraper(BaseScraper):
                 total = len(data)
                 self.log_progress(f"Found {total} technologies")
 
+                all_technologies = []
                 for i, item in enumerate(data):
                     tech = self._parse_api_item(item)
                     if tech:
-                        self._tech_count += 1
-                        yield tech
-
-                    # Log progress every 100 items
+                        all_technologies.append(tech)
                     if (i + 1) % 100 == 0:
                         self.log_progress(f"Processed {i + 1}/{total} technologies")
 
-            self._page_count = 1  # Single API call
-            self.log_progress(
-                f"Completed scraping: {self._tech_count} technologies"
-            )
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+            semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+            tasks = [self._fetch_detail(tech, semaphore) for tech in all_technologies]
+            enriched = await asyncio.gather(*tasks)
+
+            for tech in enriched:
+                self._tech_count += 1
+                yield tech
+
+            self._page_count = 1
+            self.log_progress(f"Completed scraping: {self._tech_count} technologies")
 
         finally:
             await self._close_session()
 
     async def scrape_page(self, page_num: int) -> list[Technology]:
-        """
-        Scrape technologies - UMich uses single API call, not pagination.
-        This method exists for interface compatibility.
-        """
         if page_num != 1:
             return []
-
         technologies = []
         async for tech in self.scrape():
             technologies.append(tech)
@@ -103,10 +121,8 @@ class UMichScraper(BaseScraper):
             tech_id = str(attrs.get("id", ""))
             url_path = attrs.get("url", "")
 
-            # Build full URL
             url = f"{self.BASE_URL}/{url_path}" if url_path else ""
 
-            # Extract slug for tech_id if numeric ID not available
             if not tech_id and url_path:
                 tech_id = url_path.replace("product/", "")
 
@@ -125,7 +141,7 @@ class UMichScraper(BaseScraper):
                 tech_id=tech_id,
                 title=name,
                 url=url,
-                description=None,  # Would need to fetch detail page
+                description=None,
                 raw_data=raw_data,
             )
 
@@ -134,45 +150,171 @@ class UMichScraper(BaseScraper):
             return None
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """
-        Scrape detailed information from a technology's detail page.
-
-        Args:
-            url: The URL of the technology detail page
-
-        Returns:
-            Dictionary with detailed technology information
-        """
+        """Scrape detailed information from a technology's detail page."""
+        if not url:
+            return None
         await self._init_session()
 
         try:
-            async with self._session.get(url) as response:
-                if response.status != 200:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
                     return None
+                html = await resp.text()
 
-                html = await response.text()
-                soup = BeautifulSoup(html, "lxml")
+            soup = BeautifulSoup(html, "html.parser")
+            detail: dict = {}
+            text = soup.get_text()
 
-                detail = {}
+            # Technology number from meta description
+            meta_desc = soup.find("meta", attrs={"name": "description"})
+            if meta_desc:
+                content = meta_desc.get("content", "")
+                if "TECHNOLOGY NUMBER:" in content:
+                    detail["technology_number"] = content.replace("TECHNOLOGY NUMBER:", "").strip()
 
-                # Get technology number from meta description
-                meta_desc = soup.find("meta", attrs={"name": "description"})
-                if meta_desc:
-                    content = meta_desc.get("content", "")
-                    if "TECHNOLOGY NUMBER:" in content:
-                        detail["technology_number"] = content.replace("TECHNOLOGY NUMBER:", "").strip()
+            # Description from product-description-box or description div
+            desc_box = soup.select_one(".product-description-box, .description, .c_content")
+            if desc_box:
+                detail["full_description"] = desc_box.get_text(separator="\n", strip=True)
+            else:
+                h1 = soup.find("h1")
+                if h1:
+                    parts = []
+                    for sib in h1.find_next_siblings():
+                        if sib.name in ("h2", "h3", "h4", "strong") and any(
+                            kw in sib.get_text().lower()
+                            for kw in ["benefit", "feature", "application", "advantage",
+                                        "author", "inventor", "problem", "solution"]
+                        ):
+                            break
+                        if sib.name in ("p", "div") and sib.get_text(strip=True):
+                            parts.append(sib.get_text(strip=True))
+                    if parts:
+                        detail["full_description"] = "\n".join(parts)
 
-                # Get description
-                desc_div = soup.find("div", class_="description")
-                if desc_div:
-                    detail["description"] = desc_div.get_text(strip=True)
+            # Structured sections
+            for heading in soup.find_all(["h2", "h3", "strong"]):
+                htxt = heading.get_text(strip=True).lower()
+                items = []
+                nxt = heading.find_next_sibling()
+                while nxt:
+                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
+                        break
+                    if nxt.name == "ul":
+                        for li in nxt.find_all("li"):
+                            t = li.get_text(strip=True)
+                            if t:
+                                items.append(t)
+                    elif nxt.name == "p" and nxt.get_text(strip=True):
+                        items.append(nxt.get_text(strip=True))
+                    nxt = nxt.find_next_sibling()
+                if not items:
+                    continue
+                if "problem" in htxt:
+                    detail["problem"] = " ".join(items)
+                elif "solution" in htxt:
+                    detail["solution"] = " ".join(items)
+                elif "competitive" in htxt or "advantage" in htxt or "benefit" in htxt:
+                    detail["advantages"] = items
+                elif "application" in htxt:
+                    detail["applications"] = items
+                elif "background" in htxt:
+                    detail["background"] = "\n".join(items)
+                elif "development" in htxt or "stage" in htxt:
+                    detail["development_stage"] = " ".join(items)
 
-                # Get full product description box
-                desc_box = soup.find("div", class_="product-description-box")
-                if desc_box:
-                    detail["full_description"] = desc_box.get_text(strip=True)
+            # Collapsible sections (Authors, References, Documents)
+            for coll in soup.select(".collapsible-header"):
+                htxt = coll.get_text(strip=True).lower()
+                body = coll.find_next_sibling(class_="collapsible-body")
+                if not body:
+                    continue
+                if "author" in htxt or "inventor" in htxt:
+                    inventors = []
+                    for el in body.select("a, span"):
+                        n = el.get_text(strip=True)
+                        if n and len(n) > 2 and n not in inventors:
+                            inventors.append(n)
+                    if not inventors:
+                        inventors = [n.strip() for n in body.get_text().split(",") if len(n.strip()) > 2]
+                    if inventors:
+                        detail["inventors"] = inventors
+                elif "reference" in htxt or "publication" in htxt:
+                    refs = []
+                    for el in body.find_all(["a", "li", "p"]):
+                        t = el.get_text(strip=True)
+                        if t:
+                            entry = {"text": t}
+                            if el.name == "a" and el.get("href"):
+                                entry["url"] = el["href"]
+                            refs.append(entry)
+                    if refs:
+                        detail["publications"] = refs
+                elif "document" in htxt:
+                    docs = []
+                    for a in body.find_all("a", href=True):
+                        docs.append({"name": a.get_text(strip=True), "url": a["href"]})
+                    if docs:
+                        detail["supporting_documents"] = docs
 
-                return detail
+            # Categories/Tags
+            categories = []
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "")
+                if "searchresults" in href or "category" in href or "lvl0" in href:
+                    cat = a.get_text(strip=True)
+                    if cat and cat not in categories and len(cat) > 1:
+                        categories.append(cat)
+            if categories:
+                detail["categories"] = categories
+
+            # Contact
+            contact = {}
+            email_link = soup.select_one("a[href^='mailto:']")
+            if email_link:
+                contact["email"] = email_link["href"].replace("mailto:", "").split("?")[0]
+                parent = email_link.find_parent()
+                if parent:
+                    pt = parent.get_text(strip=True)
+                    if pt != contact["email"]:
+                        contact["name"] = pt.replace(contact["email"], "").strip().rstrip(",").strip()
+            if contact:
+                detail["contact"] = contact
+
+            # Patent table
+            patent_table = soup.find("table")
+            if patent_table:
+                rows = patent_table.find_all("tr")
+                if len(rows) > 1:
+                    headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+                    patents = []
+                    for row in rows[1:]:
+                        cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                        if cells:
+                            patents.append(dict(zip(headers, cells)))
+                    if patents:
+                        detail["patent_table"] = patents
+                        if not detail.get("patent_status"):
+                            for p in patents:
+                                if p.get("patent no.") or p.get("patent number"):
+                                    detail["patent_status"] = "Granted"
+                                    break
+
+            # Patent numbers from links
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "")
+                if "patents.google" in href or "patft.uspto" in href:
+                    pn = a.get_text(strip=True)
+                    if pn:
+                        detail.setdefault("patent_numbers", []).append(pn)
+                        detail["patent_status"] = "Granted"
+
+            # Licensing info
+            licence_el = soup.select_one(".modal-licence, .license-info")
+            if licence_el:
+                detail["licensing_info"] = licence_el.get_text(strip=True)
+
+            return detail
 
         except Exception as e:
             logger.debug(f"Error fetching technology detail: {e}")
@@ -180,9 +322,7 @@ class UMichScraper(BaseScraper):
 
     # Backwards compatibility methods
     async def _init_browser(self) -> None:
-        """Backwards compatibility - initializes HTTP session instead."""
         await self._init_session()
 
     async def _close_browser(self) -> None:
-        """Backwards compatibility - closes HTTP session instead."""
         await self._close_session()

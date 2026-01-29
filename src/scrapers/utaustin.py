@@ -7,9 +7,12 @@ from xml.etree import ElementTree
 import html
 
 import aiohttp
+from bs4 import BeautifulSoup
 from loguru import logger
 
 from .base import BaseScraper, Technology
+
+DETAIL_CONCURRENCY = 5
 
 
 class UTAustinScraper(BaseScraper):
@@ -32,13 +35,11 @@ class UTAustinScraper(BaseScraper):
         return "UT Austin Office of Technology Commercialization"
 
     async def _init_session(self) -> None:
-        """Initialize aiohttp session."""
         if self._session is None:
             self._session = aiohttp.ClientSession()
             logger.debug("HTTP session initialized for UT Austin")
 
     async def _close_session(self) -> None:
-        """Close aiohttp session."""
         if self._session:
             await self._session.close()
             self._session = None
@@ -77,18 +78,37 @@ class UTAustinScraper(BaseScraper):
             return []
 
     def _get_text(self, element, tag: str) -> str:
-        """Get text content from XML element."""
         child = element.find(tag)
         if child is not None and child.text:
-            # Unescape HTML entities
             text = html.unescape(child.text)
-            # Remove CDATA markers if present
             text = re.sub(r'<!\[CDATA\[|\]\]>', '', text)
             return text.strip()
         return ""
 
+    async def _fetch_detail(self, tech: Technology, semaphore: asyncio.Semaphore) -> Technology:
+        """Fetch detail page for a technology and merge data."""
+        async with semaphore:
+            try:
+                detail = await self.scrape_technology_detail(tech.url)
+                if detail:
+                    tech.raw_data.update(detail)
+                    if detail.get("full_description") and not tech.description:
+                        tech.description = detail["full_description"]
+                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
+                        tech.description = detail["full_description"]
+                    if detail.get("inventors"):
+                        tech.innovators = detail["inventors"]
+                    if detail.get("categories"):
+                        tech.keywords = detail["categories"]
+                    if detail.get("patent_status"):
+                        tech.patent_status = detail["patent_status"]
+                await asyncio.sleep(self.delay_seconds)
+            except Exception as e:
+                logger.debug(f"Error fetching detail for {tech.url}: {e}")
+        return tech
+
     async def scrape(self) -> AsyncIterator[Technology]:
-        """Scrape all technologies from UT Austin via RSS feed."""
+        """Scrape all technologies from UT Austin via RSS feed with detail enrichment."""
         try:
             await self._init_session()
 
@@ -97,26 +117,30 @@ class UTAustinScraper(BaseScraper):
             total = len(items)
             self.log_progress(f"Found {total} technologies in RSS feed")
 
+            all_technologies = []
             for i, item in enumerate(items):
                 tech = self._parse_rss_item(item)
                 if tech:
-                    self._tech_count += 1
-                    yield tech
-
-                # Log progress every 100 items
+                    all_technologies.append(tech)
                 if (i + 1) % 100 == 0:
                     self.log_progress(f"Processed {i + 1}/{total} technologies")
 
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+            semaphore = asyncio.Semaphore(DETAIL_CONCURRENCY)
+            tasks = [self._fetch_detail(tech, semaphore) for tech in all_technologies]
+            enriched = await asyncio.gather(*tasks)
+
+            for tech in enriched:
+                self._tech_count += 1
+                yield tech
+
             self._page_count = 1
-            self.log_progress(
-                f"Completed scraping: {self._tech_count} technologies"
-            )
+            self.log_progress(f"Completed scraping: {self._tech_count} technologies")
 
         finally:
             await self._close_session()
 
     def _parse_rss_item(self, item: dict) -> Optional[Technology]:
-        """Parse technology info from RSS item."""
         try:
             title = item.get("title", "").strip()
             if not title:
@@ -124,26 +148,20 @@ class UTAustinScraper(BaseScraper):
 
             url = item.get("link") or item.get("guid", "")
 
-            # Extract tech_id from URL (e.g., /technology/59895)
             tech_id = ""
             if url:
                 match = re.search(r'/technology/(\d+)', url)
                 if match:
                     tech_id = match.group(1)
 
-            # Use case_id if no tech_id from URL
             case_id = item.get("case_id", "")
             if not tech_id:
                 tech_id = case_id or re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50]
 
-            # Clean description
             description = item.get("description", "")
             if description:
-                # Remove HTML tags
                 description = re.sub(r'<[^>]+>', '', description)
-                # Clean up whitespace
                 description = re.sub(r'\s+', ' ', description).strip()
-                # Truncate if too long
                 if len(description) > 500:
                     description = description[:497] + "..."
 
@@ -170,50 +188,143 @@ class UTAustinScraper(BaseScraper):
             return None
 
     async def scrape_page(self, page_num: int) -> list[Technology]:
-        """
-        Scrape technologies - UT Austin uses RSS feed approach.
-        This method exists for interface compatibility.
-        """
         if page_num != 1:
             return []
-
         technologies = []
         async for tech in self.scrape():
             technologies.append(tech)
         return technologies
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """
-        Scrape detailed information from a technology's detail page.
-
-        Args:
-            url: The URL of the technology detail page
-
-        Returns:
-            Dictionary with detailed technology information
-        """
+        """Scrape detailed information from a technology's detail page."""
+        if not url:
+            return None
         await self._init_session()
 
         try:
-            async with self._session.get(url) as response:
-                if response.status != 200:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
                     return None
+                html_content = await resp.text()
 
-                html_content = await response.text()
-                detail = {"url": url}
+            soup = BeautifulSoup(html_content, "html.parser")
+            detail: dict = {}
+            text = soup.get_text()
 
-                # Extract additional details from page if needed
-                return detail
+            # Description
+            desc_div = soup.select_one(".c_content, .js-text, .description, .product-description-box")
+            if desc_div:
+                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+
+            # Parse sections by headings
+            for heading in soup.find_all(["h2", "h3", "strong"]):
+                htxt = heading.get_text(strip=True).lower()
+                items = []
+                nxt = heading.find_next_sibling()
+                if not nxt and heading.parent:
+                    nxt = heading.parent.find_next_sibling()
+                while nxt:
+                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
+                        break
+                    if nxt.name == "ul":
+                        for li in nxt.find_all("li"):
+                            t = li.get_text(strip=True)
+                            if t:
+                                items.append(t)
+                    elif nxt.name in ("p", "div") and nxt.get_text(strip=True):
+                        items.append(nxt.get_text(strip=True))
+                    nxt = nxt.find_next_sibling()
+                if not items:
+                    continue
+                if "background" in htxt:
+                    detail["background"] = "\n".join(items)
+                elif "benefit" in htxt or "advantage" in htxt:
+                    detail["advantages"] = items
+                elif "application" in htxt:
+                    detail["applications"] = items
+                elif "opportunity" in htxt:
+                    detail["opportunity"] = " ".join(items)
+                elif "development" in htxt or "stage" in htxt:
+                    detail["development_stage"] = " ".join(items)
+                elif "intellectual" in htxt or "ip" in htxt:
+                    detail["ip_info"] = " ".join(items)
+
+            # Inventors
+            inventors = []
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "")
+                if "searchresults" in href and "type=i" in href:
+                    name = a.get_text(strip=True)
+                    if name and name not in inventors:
+                        inventors.append(name)
+            if inventors:
+                detail["inventors"] = inventors
+
+            # Categories
+            categories = []
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "")
+                if ("searchresults" in href or "category" in href) and "type=i" not in href:
+                    cat = a.get_text(strip=True)
+                    if cat and cat not in categories and len(cat) > 1 and cat not in (inventors or []):
+                        categories.append(cat)
+            if categories:
+                detail["categories"] = categories
+
+            # Contact
+            contact = {}
+            email_link = soup.select_one("a[href^='mailto:']")
+            if email_link:
+                contact["email"] = email_link["href"].replace("mailto:", "").split("?")[0]
+                parent = email_link.find_parent()
+                if parent:
+                    pt = parent.get_text(strip=True)
+                    if pt != contact["email"]:
+                        contact["name"] = pt.replace(contact["email"], "").strip().rstrip(",").strip()
+            if contact:
+                detail["contact"] = contact
+
+            # Patent info from table
+            patent_table = soup.find("table")
+            if patent_table:
+                rows = patent_table.find_all("tr")
+                if len(rows) > 1:
+                    headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+                    patents = []
+                    for row in rows[1:]:
+                        cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                        if cells:
+                            patents.append(dict(zip(headers, cells)))
+                    if patents:
+                        detail["patent_table"] = patents
+                        for p in patents:
+                            if p.get("patent no.") or p.get("patent number"):
+                                detail["patent_status"] = "Granted"
+                                break
+
+            if not detail.get("patent_status"):
+                if "patent pending" in text.lower():
+                    detail["patent_status"] = "Pending"
+                elif "provisional" in text.lower() and "patent" in text.lower():
+                    detail["patent_status"] = "Provisional"
+
+            # Publications / DOIs
+            refs = []
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "")
+                if "doi.org" in href or "pubmed" in href:
+                    refs.append({"text": a.get_text(strip=True), "url": href})
+            if refs:
+                detail["publications"] = refs
+
+            return detail
 
         except Exception as e:
             logger.debug(f"Error fetching technology detail: {e}")
             return None
 
-    # Backwards compatibility methods
     async def _init_browser(self) -> None:
-        """Backwards compatibility - initializes HTTP session instead."""
         await self._init_session()
 
     async def _close_browser(self) -> None:
-        """Backwards compatibility - closes HTTP session instead."""
         await self._close_session()
