@@ -163,8 +163,8 @@ class WARFScraper(TechPublisherScraper):
                     detail["applications"] = items
                 elif "available ip" in htxt or "intellectual" in htxt:
                     detail["available_ip"] = items
-                elif "invention" in htxt and "full_description" not in detail:
-                    detail["full_description"] = " ".join(items)
+                elif "invention" in htxt:
+                    detail["invention"] = " ".join(items)
 
             # Collapsible sections
             for coll in soup.select(".collapsible-header"):

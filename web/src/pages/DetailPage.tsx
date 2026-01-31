@@ -78,6 +78,10 @@ export function DetailPage() {
   const technicalProblem = rawData?.technical_problem as string | undefined
   const solutionText = rawData?.solution as string | undefined
   const fullDescription = rawData?.full_description as string | undefined
+  const invention = rawData?.invention as string | undefined
+  const availableIp = Array.isArray(rawData?.available_ip) ? rawData.available_ip as string[] : undefined
+  const supportingDocuments = rawData?.supporting_documents as Array<{ name?: string; url?: string }> | undefined
+  const patentTable = rawData?.patent_table as Array<Record<string, string>> | undefined
   const clientDepartments = rawData?.client_departments as string[] | undefined
 
   // Helper to strip HTML tags and clean up text
@@ -199,6 +203,84 @@ export function DetailPage() {
                   <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
                     {tech.description.replace(/\r\r/g, '\n\n').replace(/\r/g, '\n')}
                   </p>
+                </div>
+              )}
+
+              {/* The Invention (WARF) */}
+              {invention && (
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">The Invention</h2>
+                  <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
+                    {invention}
+                  </p>
+                </div>
+              )}
+
+              {/* Included IP (WARF) */}
+              {availableIp && availableIp.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">Included IP</h2>
+                  <ul className="space-y-2">
+                    {availableIp.map((ip, i) => (
+                      <li key={i} className="flex gap-2 text-gray-700">
+                        <span className="text-blue-500 mt-1 flex-shrink-0">•</span>
+                        <span>{ip}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Supporting Documents (WARF) */}
+              {supportingDocuments && supportingDocuments.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">Supporting Documents</h2>
+                  <ul className="space-y-2">
+                    {supportingDocuments.map((doc, i) => (
+                      <li key={i}>
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                          </svg>
+                          {doc.name || 'Document'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Patent Table (WARF) */}
+              {patentTable && patentTable.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">Patents</h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          {Object.keys(patentTable[0]).map((header) => (
+                            <th key={header} className="text-left py-2 pr-4 font-medium text-gray-600 capitalize">
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {patentTable.map((row, i) => (
+                          <tr key={i} className="border-b border-gray-100">
+                            {Object.values(row).map((val, j) => (
+                              <td key={j} className="py-2 pr-4 text-gray-700">{val}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
@@ -377,10 +459,11 @@ export function DetailPage() {
               {/* Empty state if no content */}
               {!tech.description && !otherHtml && !abstractText && !shortDescription &&
                !benefitHtml && !marketApplicationHtml && !marketOpportunity &&
-               !publicationsHtml && !background && !fullDescription &&
+               !publicationsHtml && !background && !fullDescription && !invention &&
                (!keyPoints || keyPoints.length === 0) &&
                (!applications || applications.length === 0) &&
-               (!advantages || advantages.length === 0) && (
+               (!advantages || advantages.length === 0) &&
+               (!availableIp || availableIp.length === 0) && (
                 <p className="text-gray-500 italic">No description available for this technology.</p>
               )}
             </div>
