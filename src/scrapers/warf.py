@@ -115,56 +115,68 @@ class WARFScraper(TechPublisherScraper):
                 elif warf_match.group(2) == "APP":
                     detail["patent_status"] = "Pending"
 
-            # Description - subtitle in h6 or main paragraphs
+            # Subtitle from first h6
             h6 = soup.find("h6")
             if h6:
                 detail["subtitle"] = h6.get_text(strip=True)
 
-            desc_box = soup.select_one(".product-description-box, .description, .c_content")
-            if desc_box:
-                detail["full_description"] = desc_box.get_text(separator="\n", strip=True)
-            else:
-                h1 = soup.find("h1")
-                if h1:
-                    parts = []
-                    for sib in h1.find_next_siblings():
-                        if sib.name in ("h2", "h3", "h4", "strong") and any(
-                            kw in sib.get_text().lower()
-                            for kw in ["benefit", "key benefit", "application", "advantage",
-                                        "author", "inventor", "available ip", "licensing"]
-                        ):
-                            break
-                        if sib.name in ("p", "div") and sib.get_text(strip=True):
-                            parts.append(sib.get_text(strip=True))
-                    if parts:
-                        detail["full_description"] = "\n".join(parts)
+            # Parse structured sections from description div
+            # WARF uses <b> tags inside <p> elements as section headers:
+            #   <p><b>Overview: </b>text...</p>
+            #   <p><b>Applications</b></p><ul>...</ul>
+            desc_div = soup.select_one(".description.grey-text") or soup.select_one(".product-description-box, .description, .c_content")
+            if desc_div:
+                current_section = None
+                current_items = []
 
-            # Structured sections
-            for heading in soup.find_all(["h2", "h3", "strong"]):
-                htxt = heading.get_text(strip=True).lower()
-                items = []
-                nxt = heading.find_next_sibling()
-                while nxt:
-                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
-                        break
-                    if nxt.name == "ul":
-                        for li in nxt.find_all("li"):
+                def _flush_section(section_name, items):
+                    if not items:
+                        return
+                    sn = section_name.lower().rstrip(":").strip()
+                    if "overview" in sn:
+                        detail["full_description"] = "\n".join(items)
+                    elif "invention" in sn:
+                        detail["invention"] = "\n".join(items)
+                    elif "key benefit" in sn or "benefit" in sn or "advantage" in sn:
+                        detail["advantages"] = items
+                    elif "application" in sn:
+                        detail["applications"] = items
+                    elif "available ip" in sn or "intellectual" in sn or "included ip" in sn:
+                        detail["available_ip"] = items
+                    elif "licensing" in sn:
+                        detail["licensing_info"] = "\n".join(items)
+
+                for el in desc_div.children:
+                    if not hasattr(el, 'name') or not el.name:
+                        continue
+                    if el.name == "p":
+                        bold = el.find("b")
+                        if bold:
+                            label = bold.get_text(strip=True)
+                            # Flush previous section
+                            if current_section:
+                                _flush_section(current_section, current_items)
+                            current_section = label
+                            current_items = []
+                            # Text after the bold tag in the same <p>
+                            rest = el.get_text(strip=True).replace(label, "", 1).strip()
+                            if rest:
+                                current_items.append(rest)
+                        elif current_section and el.get_text(strip=True):
+                            current_items.append(el.get_text(strip=True))
+                    elif el.name == "ul" and current_section:
+                        for li in el.find_all("li"):
                             t = li.get_text(strip=True)
                             if t:
-                                items.append(t)
-                    elif nxt.name == "p" and nxt.get_text(strip=True):
-                        items.append(nxt.get_text(strip=True))
-                    nxt = nxt.find_next_sibling()
-                if not items:
-                    continue
-                if "key benefit" in htxt or "benefit" in htxt or "advantage" in htxt:
-                    detail["advantages"] = items
-                elif "application" in htxt:
-                    detail["applications"] = items
-                elif "available ip" in htxt or "intellectual" in htxt:
-                    detail["available_ip"] = items
-                elif "invention" in htxt:
-                    detail["invention"] = " ".join(items)
+                                current_items.append(t)
+
+                # Flush last section
+                if current_section:
+                    _flush_section(current_section, current_items)
+
+                # Fallback: use full text if no structured sections found
+                if "full_description" not in detail and "invention" not in detail:
+                    detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
 
             # Collapsible sections
             for coll in soup.select(".collapsible-header"):
