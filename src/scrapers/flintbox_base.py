@@ -9,6 +9,19 @@ from loguru import logger
 from .base import BaseScraper, Technology
 
 
+_METADATA_PATTERNS = re.compile(
+    r"(Contact\s*:|Inventors?\s*:|Technology Category|Case Manager|"
+    r"Contact Information|Case Number|Case #|USU Ref\.|USU Department)",
+    re.IGNORECASE,
+)
+
+_SECTION_MARKERS = re.compile(
+    r"(?:Market\s+Applications?\s*:?|Features,?\s+Benefits?\s*(?:&|and)\s*Advantages?\s*:?|"
+    r"Benefits?\s*:?|Reference\s+Number\s*:?)",
+    re.IGNORECASE,
+)
+
+
 class FlintboxScraper(BaseScraper):
     """
     Base scraper for sites using the Flintbox platform.
@@ -161,6 +174,99 @@ class FlintboxScraper(BaseScraper):
             self.log_error(f"Error fetching page {page_num}", e)
             return []
 
+    @staticmethod
+    def _clean_html_text(raw_text: str) -> str:
+        """Strip HTML tags and decode common HTML entities."""
+        cleaned = re.sub(r"<[^>]+>", " ", raw_text)
+        cleaned = cleaned.replace("&nbsp;", " ").replace("&amp;", "&")
+        cleaned = cleaned.replace("&lt;", "<").replace("&gt;", ">")
+        cleaned = cleaned.replace("&quot;", '"')
+        # Convert middle-dot bullets to dashes
+        cleaned = re.sub(r"[·•]\s*", "- ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
+    @staticmethod
+    def _is_metadata(text: str) -> bool:
+        """Check if text is internal metadata rather than narrative content."""
+        if not text:
+            return False
+        cleaned = re.sub(r"<[^>]+>", " ", text).strip()
+        return bool(_METADATA_PATTERNS.search(cleaned))
+
+    @staticmethod
+    def _parse_embedded_sections(abstract_html: str) -> dict:
+        """Parse TTU-style abstracts that contain embedded section markers.
+
+        Returns a dict with keys: abstract, market_application, benefit.
+        Only populated if markers are found; otherwise returns {"abstract": abstract_html}.
+        """
+        if not abstract_html:
+            return {"abstract": abstract_html}
+
+        # Check for section markers in the text (ignoring HTML tags)
+        plain = re.sub(r"<[^>]+>", " ", abstract_html)
+        if not _SECTION_MARKERS.search(plain):
+            return {"abstract": abstract_html}
+
+        # Split on section headers that may be wrapped in HTML tags like
+        # <p><strong>Market Applications:</strong></p> or <p>Market Applications:</p>
+        tag = r"(?:</?(?:p|strong|b|br|em)\s*/?>[\s\n]*)*"
+        section_re = re.compile(
+            tag
+            + r"(?:"
+            + r"(?P<abstract>Abstract\s*:\s*)"
+            + r"|(?P<market>Market\s+Applications?\s*:?\s*)"
+            + r"|(?P<benefit>Features,?\s+Benefits?\s*(?:&amp;|&|and)\s*Advantages?\s*:?\s*)"
+            + r"|(?P<ip>Intellectual\s+Property\s*:?\s*)"
+            + r"|(?P<dev>Development(?:al)?\s+Stage\s*:?\s*)"
+            + r"|(?P<researcher>Researchers?\s*\(?\s*s?\s*\)?\s*:?\s*)"
+            + r"|(?P<keywords>Key\s*[Ww]ords?\s*:?\s*)"
+            + r"|(?P<refnum>Reference\s+Number\s*:?\s*)"
+            + r")"
+            + tag,
+            re.IGNORECASE,
+        )
+
+        # Use finditer to get sections with positions
+        sections: list[tuple[str, int, int]] = []  # (name, content_start, next_start)
+        for m in section_re.finditer(abstract_html):
+            # Determine which group matched
+            name = next((k for k, v in m.groupdict().items() if v), "unknown")
+            sections.append((name, m.end(), m.start()))
+
+        result: dict = {}
+
+        if not sections:
+            result["abstract"] = abstract_html
+            return result
+
+        # Text before the first section marker
+        before = abstract_html[:sections[0][2]].strip()
+        before = re.sub(r"(?:</?(?:p|strong|b|br|em)\s*/?>[\s\n]*)+$", "", before).strip()
+        if before:
+            result["abstract"] = before
+
+        # Extract content for each section
+        for idx, (name, content_start, _) in enumerate(sections):
+            content_end = sections[idx + 1][2] if idx + 1 < len(sections) else len(abstract_html)
+            content = abstract_html[content_start:content_end].strip()
+            content = re.sub(r"(?:</?(?:p|strong|b|br|em)\s*/?>[\s\n]*)+$", "", content).strip()
+            if not content:
+                continue
+
+            if name == "abstract":
+                result.setdefault("abstract", content)
+            elif name == "market":
+                result["market_application"] = content
+            elif name == "benefit":
+                result["benefit"] = content
+            elif name == "refnum":
+                result["reference_number"] = content
+            # ip, dev, researcher, keywords — not needed for display
+
+        return result
+
     def _parse_api_item(self, item: dict) -> Optional[Technology]:
         """Parse a technology item from the API response."""
         try:
@@ -239,15 +345,28 @@ class FlintboxScraper(BaseScraper):
             # Use detail description if available, otherwise key points
             description = None
             if detail:
-                # Prefer abstract, then other, then benefit (strip HTML from all)
-                for field in ("abstract", "other", "benefit"):
-                    raw_text = detail.get(field, "")
-                    if raw_text:
-                        cleaned = re.sub(r"<[^>]+>", " ", raw_text)
-                        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-                        if cleaned and len(cleaned) > 20:
-                            description = cleaned[:2000]
-                            break
+                # Parse embedded sections from abstract (TTU pattern)
+                abstract_raw = detail.get("abstract", "")
+                parsed_sections = self._parse_embedded_sections(abstract_raw)
+
+                # Try parsed abstract first, then full abstract, other, benefit
+                candidates = []
+                if parsed_sections.get("abstract"):
+                    candidates.append(("abstract", parsed_sections["abstract"]))
+                elif abstract_raw:
+                    candidates.append(("abstract", abstract_raw))
+                candidates.append(("other", detail.get("other", "")))
+                candidates.append(("benefit", detail.get("benefit", "")))
+
+                for field, raw_text in candidates:
+                    if not raw_text:
+                        continue
+                    if field == "other" and self._is_metadata(raw_text):
+                        continue
+                    cleaned = self._clean_html_text(raw_text)
+                    if cleaned and len(cleaned) > 20:
+                        description = cleaned[:2000]
+                        break
 
             if not description:
                 description = " | ".join(key_points) if key_points else None
@@ -276,11 +395,29 @@ class FlintboxScraper(BaseScraper):
                 raw_data["ip_url"] = detail.get("ipUrl")
                 raw_data["ip_date"] = detail.get("ipDate")
                 raw_data["publications"] = detail.get("publications")
-                # Store full content fields for richer detail display
-                raw_data["abstract"] = detail.get("abstract")
-                raw_data["other"] = detail.get("other")
-                raw_data["benefit"] = detail.get("benefit")
-                raw_data["market_application"] = detail.get("marketApplication")
+
+                # Handle 'other' — store metadata separately
+                other_raw = detail.get("other")
+                if other_raw and self._is_metadata(other_raw):
+                    raw_data["other_metadata"] = other_raw
+                else:
+                    raw_data["other"] = other_raw
+
+                # Handle abstract with embedded sections (TTU pattern)
+                abstract_raw = detail.get("abstract")
+                parsed = self._parse_embedded_sections(abstract_raw)
+                raw_data["abstract"] = parsed.get("abstract")
+                # Only override if detail didn't already provide these fields
+                if parsed.get("market_application") and not detail.get("marketApplication"):
+                    raw_data["market_application"] = parsed["market_application"]
+                else:
+                    raw_data["market_application"] = detail.get("marketApplication")
+                if parsed.get("benefit") and not detail.get("benefit"):
+                    raw_data["benefit"] = parsed["benefit"]
+                else:
+                    raw_data["benefit"] = detail.get("benefit")
+                if parsed.get("reference_number"):
+                    raw_data["reference_number"] = parsed["reference_number"]
                 # Store researchers, documents, contacts, and tags
                 raw_data["researchers"] = detail.get("_members")
                 raw_data["documents"] = detail.get("_documents")

@@ -66,3 +66,28 @@ These scrapers have their own copy of `_parse_api_item_with_detail()` rather tha
 
 ### Note: Other TechPublisher scrapers (uw, minnesota, princeton, michiganstate, texasstate)
 These already have full BeautifulSoup detail parsing matching WARF's pattern. Verified working — descriptions, inventors, categories, patent tables all extracted. May need Purdue-style `_parse_description_div()` if their sites use the same flat `<p>` structure (to be verified).
+
+## Phase 3: Flintbox display quality fixes — USU, UCONN, TTU (2026-02-02)
+
+### Issue 9: USU "Overview" shows metadata instead of content
+**Scrapers affected:** usu, uconn
+**Symptom:** The `other` field contained internal metadata (ref numbers, inventor lists, contact info, "Case Manager Contact Information") rather than narrative content. Frontend rendered this under "Overview" via `otherHtml`.
+**Root cause:** Flintbox API returns metadata in the `other` field for some universities. No quality check before storing it.
+**Solution:** Added `_is_metadata()` helper that detects contact/ref metadata patterns ("Contact:", "Inventors:", "Case Manager", "USU Ref.", "Case Number", "Technology Category"). When `other` matches, it's stored as `raw_data["other_metadata"]` instead of `raw_data["other"]`, preventing frontend display. Same check skips metadata `other` when building the description.
+**File:** `src/scrapers/flintbox_base.py`
+
+### Issue 10: UCONN `·&nbsp;` formatting artifacts in display
+**Scrapers affected:** All Flintbox scrapers (visible on uconn)
+**Symptom:** Market application and other fields displayed `·&nbsp;&nbsp;&nbsp;` bullet formatting instead of clean text. HTML entities persisted after tag stripping.
+**Root cause:** The HTML strip regex (`<[^>]+>`) removed tags but not HTML entities like `&nbsp;`, `&amp;`, `·`.
+**Solution:** Two fixes:
+1. Added `_clean_html_text()` helper in scraper that strips tags AND decodes entities (`&nbsp;`→space, `&amp;`→`&`, `·`/`•`→`- `). Used for description building.
+2. Enhanced frontend `stripHtml()` in `parseRawData.ts` to also decode `&nbsp;`, `&amp;`, `&lt;`, `&gt;`, `&quot;` and convert `·`/`•` bullets to `- `. This fixes display for all raw_data HTML fields without re-scraping.
+**Files:** `src/scrapers/flintbox_base.py`, `web/src/components/Detail/parseRawData.ts`
+
+### Issue 11: TTU abstract contains embedded sections as single block
+**Scrapers affected:** ttu (and potentially other Flintbox scrapers with similar API data)
+**Symptom:** TTU's `abstract` field contained the full page content including "Market Applications:", "Features, Benefits & Advantages:", "Intellectual Property:", "Development Stage:", "Researchers:", "Keywords:" sections as HTML. Everything displayed as one text blob under "Abstract".
+**Root cause:** Flintbox API returns all content in the `abstract` field for TTU, rather than using separate API fields like `marketApplication` and `benefit`.
+**Solution:** Added `_parse_embedded_sections()` helper that detects and splits section markers (wrapped in `<p>`, `<strong>`, etc.) into structured fields. Extracts `market_application`, `benefit`, and `reference_number` from the abstract HTML, leaving only the actual abstract text. Only triggers when section markers are present (no impact on other universities). Parsed fields populate `raw_data` only when the API's own fields are empty.
+**File:** `src/scrapers/flintbox_base.py`
