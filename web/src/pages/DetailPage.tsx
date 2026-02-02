@@ -75,6 +75,8 @@ export function DetailPage() {
   const marketOpportunity = rawData?.market_opportunity as string | undefined
   const developmentStage = rawData?.development_stage as string | undefined
   const ipStatusText = rawData?.ip_status as string | undefined
+  const ipNumber = rawData?.ip_number as string | undefined
+  const ipUrl = rawData?.ip_url as string | undefined
   const technicalProblem = rawData?.technical_problem as string | undefined
   const solutionText = rawData?.solution as string | undefined
   const fullDescription = rawData?.full_description as string | undefined
@@ -364,13 +366,27 @@ export function DetailPage() {
                 </div>
               )}
 
-              {/* IP Status (text from Algolia) */}
-              {ipStatusText && (
+              {/* IP Status */}
+              {(ipStatusText || ipNumber) && (
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 mb-3">IP Status</h2>
-                  <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
-                    {ipStatusText}
-                  </p>
+                  {ipStatusText && (
+                    <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {ipStatusText}
+                    </p>
+                  )}
+                  {ipNumber && (
+                    <p className="text-gray-700 mt-2">
+                      <span className="font-medium">Patent: </span>
+                      {ipUrl ? (
+                        <a href={ipUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                          {ipNumber}
+                        </a>
+                      ) : (
+                        <span>{ipNumber}</span>
+                      )}
+                    </p>
+                  )}
                 </div>
               )}
 
