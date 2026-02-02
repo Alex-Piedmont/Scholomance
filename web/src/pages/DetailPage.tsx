@@ -1,3 +1,4 @@
+import { useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import { useTechnology } from '../hooks'
@@ -15,12 +16,25 @@ export function DetailPage() {
   const prevUuid = uuids && currentIndex > 0 ? uuids[currentIndex - 1] : null
   const nextUuid = uuids && currentIndex >= 0 && currentIndex < uuids.length - 1 ? uuids[currentIndex + 1] : null
 
-  const goToSibling = (targetUuid: string, newIndex: number) => {
+  const goToSibling = useCallback((targetUuid: string, newIndex: number) => {
     navigate(`/technology/${targetUuid}`, {
       state: { uuids, index: newIndex },
       replace: true,
     })
-  }
+  }, [navigate, uuids])
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'ArrowLeft' && prevUuid) {
+        goToSibling(prevUuid, currentIndex - 1)
+      } else if (e.key === 'ArrowRight' && nextUuid) {
+        goToSibling(nextUuid, currentIndex + 1)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [prevUuid, nextUuid, currentIndex, goToSibling])
 
   if (loading) {
     return (
