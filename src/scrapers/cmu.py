@@ -171,10 +171,14 @@ class CMUScraper(BaseScraper):
             # Use detail description if available, otherwise key points
             description = None
             if detail:
-                other = detail.get("other", "")
-                if other:
-                    description = re.sub(r"<[^>]+>", " ", other)
-                    description = re.sub(r"\s+", " ", description).strip()[:2000]
+                for field in ("abstract", "other", "benefit"):
+                    raw_text = detail.get(field, "")
+                    if raw_text:
+                        cleaned = re.sub(r"<[^>]+>", " ", raw_text)
+                        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+                        if cleaned and len(cleaned) > 20:
+                            description = cleaned[:2000]
+                            break
 
             if not description:
                 description = " | ".join(key_points) if key_points else None
@@ -214,12 +218,31 @@ class CMUScraper(BaseScraper):
                 raw_data["contacts"] = detail.get("_contacts")
                 raw_data["flintbox_tags"] = detail.get("_tags")
 
+            # Extract top-level fields from detail
+            innovators = None
+            keywords = None
+            patent_status = None
+            if detail:
+                members = detail.get("_members", [])
+                if members:
+                    innovators = [m["name"] for m in members if m.get("name")]
+                    innovators = innovators or None
+                tags = detail.get("_tags")
+                if tags:
+                    keywords = tags
+                ip_status = detail.get("ipStatus")
+                if ip_status:
+                    patent_status = ip_status
+
             return Technology(
                 university="cmu",
                 tech_id=tech_id or uuid or re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50],
                 title=title,
                 url=url,
                 description=description,
+                innovators=innovators,
+                keywords=keywords,
+                patent_status=patent_status,
                 raw_data=raw_data,
             )
 
