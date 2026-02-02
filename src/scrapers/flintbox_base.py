@@ -17,7 +17,11 @@ _METADATA_PATTERNS = re.compile(
 
 _SECTION_MARKERS = re.compile(
     r"(?:Market\s+Applications?\s*:?|Features,?\s+Benefits?\s*(?:&|and)\s*Advantages?\s*:?|"
-    r"Benefits?\s*:?|Reference\s+Number\s*:?)",
+    r"Benefits?\s*:?|Reference\s+Number\s*:?|"
+    r"Technology\s+(?:Overview|Applications?|Advantages?)\s*:?|"
+    r"Potential\s+Applications?\s*:?|Advantages?\s*:?|"
+    r"Background\s*(?:&amp;|&)\s*Unmet\s+Need\s*:?|"
+    r"Publications?\s*:?|Patents?\s*:?)",
     re.IGNORECASE,
 )
 
@@ -211,14 +215,22 @@ class FlintboxScraper(BaseScraper):
 
         # Split on section headers that may be wrapped in HTML tags like
         # <p><strong>Market Applications:</strong></p> or <p>Market Applications:</p>
-        tag = r"(?:</?(?:p|strong|b|br|em)\s*/?>[\s\n]*)*"
+        tag = r"(?:</?(?:p|strong|b|br|em|ul|li|h[1-6])\s*/?>[\s\n]*)*"
         section_re = re.compile(
             tag
             + r"(?:"
             + r"(?P<abstract>Abstract\s*:\s*)"
-            + r"|(?P<market>Market\s+Applications?\s*:?\s*)"
-            + r"|(?P<benefit>Features,?\s+Benefits?\s*(?:&amp;|&|and)\s*Advantages?\s*:?\s*)"
+            + r"|(?P<market>(?:Market|Technology|Potential)\s+Applications?\s*:?\s*)"
+            + r"|(?P<benefit>"
+            +   r"Features,?\s+Benefits?\s*(?:&amp;|&|and)\s*Advantages?\s*:?\s*"
+            +   r"|Technology\s+Advantages?\s*:?\s*"
+            +   r"|Advantages?\s*:?\s*"
+            + r")"
+            + r"|(?P<background>Background\s*(?:&amp;|&)\s*Unmet\s+Need\s*:?\s*)"
+            + r"|(?P<overview>Technology\s+Overview\s*:?\s*)"
             + r"|(?P<ip>Intellectual\s+Property\s*:?\s*)"
+            + r"|(?P<patents>Patents?\s*:?\s*)"
+            + r"|(?P<pubs>Publications?\s*:?\s*)"
             + r"|(?P<dev>Development(?:al)?\s+Stage\s*:?\s*)"
             + r"|(?P<researcher>Researchers?\s*\(?\s*s?\s*\)?\s*:?\s*)"
             + r"|(?P<keywords>Key\s*[Ww]ords?\s*:?\s*)"
@@ -257,10 +269,21 @@ class FlintboxScraper(BaseScraper):
 
             if name == "abstract":
                 result.setdefault("abstract", content)
+            elif name == "background":
+                result.setdefault("abstract", content)
+            elif name == "overview":
+                if "abstract" in result:
+                    result["abstract"] += " " + content
+                else:
+                    result["abstract"] = content
             elif name == "market":
                 result["market_application"] = content
             elif name == "benefit":
                 result["benefit"] = content
+            elif name == "patents":
+                result["patents"] = content
+            elif name == "pubs":
+                result["publications_html"] = content
             elif name == "refnum":
                 result["reference_number"] = content
             # ip, dev, researcher, keywords — not needed for display
@@ -418,6 +441,10 @@ class FlintboxScraper(BaseScraper):
                     raw_data["benefit"] = detail.get("benefit")
                 if parsed.get("reference_number"):
                     raw_data["reference_number"] = parsed["reference_number"]
+                if parsed.get("patents"):
+                    raw_data["patents_html"] = parsed["patents"]
+                if parsed.get("publications_html"):
+                    raw_data["publications_html"] = parsed["publications_html"]
                 # Store researchers, documents, contacts, and tags
                 raw_data["researchers"] = detail.get("_members")
                 raw_data["documents"] = detail.get("_documents")

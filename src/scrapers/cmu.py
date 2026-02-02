@@ -238,6 +238,10 @@ class CMUScraper(BaseScraper):
                     raw_data["benefit"] = detail.get("benefit")
                 if parsed.get("reference_number"):
                     raw_data["reference_number"] = parsed["reference_number"]
+                if parsed.get("patents"):
+                    raw_data["patents_html"] = parsed["patents"]
+                if parsed.get("publications_html"):
+                    raw_data["publications_html"] = parsed["publications_html"]
                 # Store researchers, documents, contacts, and tags
                 raw_data["researchers"] = detail.get("_members")
                 raw_data["documents"] = detail.get("_documents")
