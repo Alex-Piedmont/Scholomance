@@ -40,6 +40,7 @@ export interface TechnologySummary {
   top_field: string | null
   subfield: string | null
   first_seen: string | null
+  published_on: string | null
 }
 
 export interface TechnologyDetail {

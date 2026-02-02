@@ -93,6 +93,7 @@ def list_technologies(
                 subfield=t.subfield,
                 patent_status=t.patent_status,
                 first_seen=t.first_seen,
+                published_on=(t.raw_data or {}).get('published_on') or (t.raw_data or {}).get('web_published'),
             )
             for t in technologies
         ]

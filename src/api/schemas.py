@@ -49,6 +49,7 @@ class TechnologySummary(BaseModel):
     subfield: Optional[str] = None
     patent_status: Optional[str] = None
     first_seen: Optional[datetime] = None
+    published_on: Optional[str] = None
 
     class Config:
         from_attributes = True

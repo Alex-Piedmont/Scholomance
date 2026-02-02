@@ -32,34 +32,10 @@ const columns = [
       <span className="text-gray-600">{info.getValue()}</span>
     ),
   }),
-  columnHelper.accessor('top_field', {
-    header: 'Field',
+  columnHelper.accessor('published_on', {
+    header: 'First Published',
     cell: (info) => {
-      const value = info.getValue()
-      return value ? (
-        <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
-          {value}
-        </span>
-      ) : (
-        <span className="text-gray-400">-</span>
-      )
-    },
-  }),
-  columnHelper.accessor('subfield', {
-    header: 'Subfield',
-    cell: (info) => {
-      const value = info.getValue()
-      return value ? (
-        <span className="text-gray-600 text-sm">{value}</span>
-      ) : (
-        <span className="text-gray-400">-</span>
-      )
-    },
-  }),
-  columnHelper.accessor('first_seen', {
-    header: 'First Seen',
-    cell: (info) => {
-      const value = info.getValue()
+      const value = info.getValue() || info.row.original.first_seen
       if (!value) return <span className="text-gray-400">-</span>
       const date = new Date(value)
       return (
