@@ -104,68 +104,26 @@ class PurdueScraper(TechPublisherScraper):
 
             soup = BeautifulSoup(html, "html.parser")
             detail: dict = {}
-            text = soup.get_text()
 
-            # Technology number
-            tech_num_match = re.search(r'Technology\s*(?:No\.?|Number)[:\s]*([A-Z0-9\-]+)', text)
-            if tech_num_match:
-                detail["technology_number"] = tech_num_match.group(1).strip()
-
-            # TRL
-            trl_match = re.search(r'TRL[:\s]*(\d)', text)
-            if trl_match:
-                detail["trl"] = trl_match.group(1)
-
-            # Description - h6 subtitle or first paragraphs
+            # Subtitle from h6
             h6 = soup.find("h6")
             if h6:
                 detail["subtitle"] = h6.get_text(strip=True)
 
-            desc_box = soup.select_one(".product-description-box, .description, .c_content")
-            if desc_box:
-                detail["full_description"] = desc_box.get_text(separator="\n", strip=True)
-            else:
-                h1 = soup.find("h1")
-                if h1:
-                    parts = []
-                    for sib in h1.find_next_siblings():
-                        if sib.name in ("h2", "h3", "h4", "strong") and any(
-                            kw in sib.get_text().lower()
-                            for kw in ["benefit", "feature", "application", "advantage", "keyword",
-                                        "author", "inventor", "patent", "intellectual"]
-                        ):
-                            break
-                        if sib.name in ("p", "div") and sib.get_text(strip=True):
-                            parts.append(sib.get_text(strip=True))
-                    if parts:
-                        detail["full_description"] = "\n".join(parts)
+            # Product ID
+            pid = soup.select_one(".product-id")
+            if pid:
+                m = re.search(r'Technology\s*No\.?\s*([\w\-]+)', pid.get_text())
+                if m:
+                    detail["technology_number"] = m.group(1).strip()
 
-            # Parse headings for structured sections
-            for heading in soup.find_all(["h2", "h3", "strong"]):
-                htxt = heading.get_text(strip=True).lower()
-                items = []
-                nxt = heading.find_next_sibling()
-                while nxt:
-                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
-                        break
-                    if nxt.name == "ul":
-                        for li in nxt.find_all("li"):
-                            t = li.get_text(strip=True)
-                            if t:
-                                items.append(t)
-                    elif nxt.name == "p" and nxt.get_text(strip=True):
-                        items.append(nxt.get_text(strip=True))
-                    nxt = nxt.find_next_sibling()
-                if not items:
-                    continue
-                if "benefit" in htxt or "feature" in htxt or "advantage" in htxt:
-                    detail["advantages"] = items
-                elif "application" in htxt:
-                    detail["applications"] = items
-                elif "phase" in htxt or "development" in htxt or "stage" in htxt:
-                    detail["development_stage"] = " ".join(items)
+            # Parse the .description div which contains all content as <p> tags
+            # with bold labels like <b>Advantages</b>:, Potential Applications:, etc.
+            desc_div = soup.select_one(".description")
+            if desc_div:
+                self._parse_description_div(desc_div, detail)
 
-            # Collapsible sections
+            # Collapsible sections (Authors, Documents, Publications)
             for coll in soup.select(".collapsible-header"):
                 htxt = coll.get_text(strip=True).lower()
                 body = coll.find_next_sibling(class_="collapsible-body")
@@ -173,12 +131,16 @@ class PurdueScraper(TechPublisherScraper):
                     continue
                 if "author" in htxt or "inventor" in htxt:
                     inventors = []
-                    for el in body.select("a, span"):
-                        n = el.get_text(strip=True)
+                    # Purdue uses nested <div><div>Name</div></div>
+                    for div in body.select("div > div"):
+                        n = div.get_text(strip=True)
                         if n and len(n) > 2 and n not in inventors:
                             inventors.append(n)
                     if not inventors:
-                        inventors = [n.strip() for n in body.get_text().split(",") if len(n.strip()) > 2]
+                        for el in body.select("a, span"):
+                            n = el.get_text(strip=True)
+                            if n and len(n) > 2 and n not in inventors:
+                                inventors.append(n)
                     if inventors:
                         detail["inventors"] = inventors
                 elif "reference" in htxt or "publication" in htxt:
@@ -194,12 +156,33 @@ class PurdueScraper(TechPublisherScraper):
                         detail["publications"] = refs
                 elif "document" in htxt:
                     docs = []
-                    for a in body.find_all("a", href=True):
-                        docs.append({"name": a.get_text(strip=True), "url": a["href"]})
+                    for section in body.select(".section"):
+                        a = section.find("a", href=True)
+                        if not a:
+                            continue
+                        href = a["href"]
+                        if not href.startswith("http"):
+                            href = f"{self.BASE_URL}{href}"
+                        # Get doc type and filename from the label divs
+                        label_col = section.select_one(".col.s12, .col.l9")
+                        if label_col:
+                            divs = label_col.find_all("div", recursive=False)
+                            doc_type = divs[0].get_text(strip=True) if len(divs) > 0 else ""
+                            filename = divs[1].get_text(strip=True) if len(divs) > 1 else ""
+                            name = f"{doc_type}: {filename}" if doc_type and filename else (filename or doc_type)
+                        else:
+                            name = a.get_text(strip=True)
+                        docs.append({"name": name, "url": href})
+                    if not docs:
+                        for a in body.find_all("a", href=True):
+                            href = a["href"]
+                            if not href.startswith("http"):
+                                href = f"{self.BASE_URL}{href}"
+                            docs.append({"name": a.get_text(strip=True), "url": href})
                     if docs:
                         detail["supporting_documents"] = docs
 
-            # Categories
+            # Categories from links
             categories = []
             for a in soup.find_all("a", href=True):
                 href = a.get("href", "")
@@ -210,14 +193,9 @@ class PurdueScraper(TechPublisherScraper):
             if categories:
                 detail["categories"] = categories
 
-            # Keywords from comma-separated text near "Keywords" label
-            kw_match = re.search(r'Keywords?[:\s]*([^\n]+)', text)
-            if kw_match:
-                kws = [k.strip() for k in kw_match.group(1).split(",") if k.strip()]
-                if kws:
-                    detail["keywords"] = kws
-                    if not detail.get("categories"):
-                        detail["categories"] = kws
+            # Use keywords as categories if no category links found
+            if not detail.get("categories") and detail.get("keywords"):
+                detail["categories"] = detail["keywords"]
 
             # Contact
             contact = {}
@@ -251,16 +229,107 @@ class PurdueScraper(TechPublisherScraper):
                                     detail["patent_status"] = "Granted"
                                     break
 
-            # IP status from text
-            ip_match = re.search(r'(?:Provisional|Utility)\s*(?:Patent|Application)', text)
-            if ip_match and not detail.get("patent_status"):
-                if "Utility" in ip_match.group(0):
-                    detail["patent_status"] = "Filed"
-                else:
-                    detail["patent_status"] = "Provisional"
-
             return detail
 
         except Exception as e:
             logger.debug(f"Error scraping detail page {url}: {e}")
             return None
+
+    @staticmethod
+    def _parse_description_div(desc_div, detail: dict) -> None:
+        """Parse Purdue's .description div which has all sections as <p> tags with bold labels."""
+        description_parts = []
+        current_section = "description"
+
+        for el in desc_div.children:
+            if not el.name:
+                continue
+
+            text = el.get_text(strip=True)
+            if not text:
+                continue
+
+            # Check for bold-label section headers within <p> tags
+            bold = el.find("b")
+            label = bold.get_text(strip=True).lower().rstrip(":") if bold else ""
+
+            if "advantage" in label or "benefit" in label or "feature" in label:
+                current_section = "advantages"
+                # Content after the bold label in same <p>
+                after = text.replace(bold.get_text(), "", 1).strip().lstrip(":")
+                if after and after != "-":
+                    detail.setdefault("advantages", []).append(after.lstrip("- "))
+                continue
+            elif "application" in label:
+                current_section = "applications"
+                after = text.replace(bold.get_text(), "", 1).strip().lstrip(":")
+                if after and after != "-":
+                    detail.setdefault("applications", []).append(after.lstrip("- "))
+                continue
+            elif "technology validation" in label or "tech validation" in label:
+                current_section = "technology_validation"
+                after = text.replace(bold.get_text(), "", 1).strip().lstrip(":")
+                if after:
+                    detail.setdefault("technology_validation", []).append(after.lstrip("- "))
+                continue
+            elif label.startswith("trl"):
+                m = re.search(r'(\d)', text)
+                if m:
+                    detail["trl"] = m.group(1)
+                current_section = "_skip"
+                continue
+            elif "intellectual" in label or "ip status" in label:
+                current_section = "ip"
+                after = text.replace(bold.get_text(), "", 1).strip().lstrip(":")
+                if after:
+                    detail["ip_text"] = after
+                    if "utility" in after.lower():
+                        detail["patent_status"] = "Filed"
+                    elif "provisional" in after.lower():
+                        detail["patent_status"] = "Provisional"
+                    elif "granted" in after.lower() or "issued" in after.lower():
+                        detail["patent_status"] = "Granted"
+                continue
+            elif "keyword" in label:
+                after = text.replace(bold.get_text(), "", 1).strip().lstrip(":")
+                kws = [k.strip() for k in after.split(",") if k.strip()]
+                if kws:
+                    detail["keywords"] = kws
+                current_section = "_skip"
+                continue
+            elif label and ("potential" in text.lower()[:30] and "application" in text.lower()[:30]):
+                current_section = "applications"
+                after = text.split(":", 1)[1].strip() if ":" in text else ""
+                if after:
+                    detail.setdefault("applications", []).append(after.lstrip("- "))
+                continue
+
+            # Check for non-bold section headers like "Potential Applications:"
+            if not bold:
+                lower = text.lower()
+                if lower.startswith("potential application") or lower.startswith("application"):
+                    current_section = "applications"
+                    after = text.split(":", 1)[1].strip() if ":" in text else ""
+                    if after:
+                        detail.setdefault("applications", []).append(after.lstrip("- "))
+                    continue
+
+            # Accumulate content into current section
+            if current_section == "description":
+                description_parts.append(text)
+            elif current_section == "advantages":
+                detail.setdefault("advantages", []).append(text.lstrip("- "))
+            elif current_section == "applications":
+                detail.setdefault("applications", []).append(text.lstrip("- "))
+            elif current_section == "technology_validation":
+                detail.setdefault("technology_validation", []).append(text.lstrip("- "))
+            elif current_section == "ip":
+                existing = detail.get("ip_text", "")
+                detail["ip_text"] = (existing + " " + text).strip() if existing else text
+                if "utility" in text.lower():
+                    detail["patent_status"] = "Filed"
+                elif "provisional" in text.lower():
+                    detail["patent_status"] = "Provisional"
+
+        if description_parts:
+            detail["full_description"] = "\n".join(description_parts)

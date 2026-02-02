@@ -110,6 +110,14 @@ export function DetailPage() {
   const solutionText = rawData?.solution as string | undefined
   const fullDescription = rawData?.full_description as string | undefined
   const clientDepartments = rawData?.client_departments as string[] | undefined
+  // TechPublisher-specific fields
+  const trl = rawData?.trl as string | undefined
+  const technologyValidation = Array.isArray(rawData?.technology_validation) ? rawData.technology_validation as string[] : undefined
+  const ipText = rawData?.ip_text as string | undefined
+  const supportingDocuments = Array.isArray(rawData?.supporting_documents) ? rawData.supporting_documents as Array<{ name?: string; url?: string }> : undefined
+  const contactDetail = rawData?.contact as { name?: string; email?: string } | undefined
+  const subtitle = rawData?.subtitle as string | undefined
+  const technologyNumber = rawData?.technology_number as string | undefined
 
   // Helper to strip HTML tags and clean up text
   const stripHtml = (html: string) => {
@@ -208,6 +216,18 @@ export function DetailPage() {
               <span>Docket: {docketNumber}</span>
             </>
           )}
+          {technologyNumber && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span>Tech No. {technologyNumber}</span>
+            </>
+          )}
+          {trl && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span>TRL: {trl}</span>
+            </>
+          )}
           {updatedDate && (
             <>
               <span className="text-gray-300">|</span>
@@ -221,6 +241,13 @@ export function DetailPage() {
           {/* Main Content Area */}
           <div className="flex-1 min-w-0">
             <div className="bg-white rounded-lg shadow p-6 space-y-6">
+              {/* Subtitle (TechPublisher) */}
+              {subtitle && (
+                <p className="text-lg text-gray-600 italic -mt-2 mb-2">
+                  {subtitle}
+                </p>
+              )}
+
               {/* Short Description (Algolia-sourced) */}
               {shortDescription && (
                 <div>
@@ -376,6 +403,21 @@ export function DetailPage() {
                 </div>
               )}
 
+              {/* Technology Validation (Purdue) */}
+              {technologyValidation && technologyValidation.length > 0 && (
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">Technology Validation</h2>
+                  <ul className="space-y-2">
+                    {technologyValidation.map((item, i) => (
+                      <li key={i} className="flex gap-2 text-gray-700">
+                        <span className="text-blue-500 mt-1 flex-shrink-0">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Advantages (text from Algolia) */}
               {!advantages?.length && typeof rawData?.advantages === 'string' && (
                 <div>
@@ -424,7 +466,7 @@ export function DetailPage() {
               )}
 
               {/* IP Status */}
-              {(ipStatusText || ipNumber) && (
+              {(ipStatusText || ipNumber || ipText) && (
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900 mb-3">IP Status</h2>
                   {ipStatusText && (
@@ -442,6 +484,11 @@ export function DetailPage() {
                       ) : (
                         <span>{ipNumber}</span>
                       )}
+                    </p>
+                  )}
+                  {ipText && (
+                    <p className="text-gray-700 mt-2 whitespace-pre-wrap">
+                      {ipText}
                     </p>
                   )}
                 </div>
@@ -598,6 +645,45 @@ export function DetailPage() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {/* Supporting Documents (TechPublisher) */}
+              {supportingDocuments && supportingDocuments.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Documents</h3>
+                  <ul className="space-y-2">
+                    {supportingDocuments.map((doc, i) => (
+                      <li key={i}>
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                          </svg>
+                          {doc.name || 'Document'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Contact (TechPublisher) */}
+              {contactDetail && !contactsList?.length && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Contact</h3>
+                  <div className="text-sm text-gray-700">
+                    {contactDetail.name && <div className="font-medium">{contactDetail.name}</div>}
+                    {contactDetail.email && (
+                      <a href={`mailto:${contactDetail.email}`} className="text-blue-600 hover:underline">
+                        {contactDetail.email}
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
 
