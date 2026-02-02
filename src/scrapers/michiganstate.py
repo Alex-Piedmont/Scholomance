@@ -32,6 +32,9 @@ class MichiganStateScraper(RSSBaseScraper):
                         tech.description = detail["full_description"]
                     elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
                         tech.description = detail["full_description"]
+                    # Clean non-breaking spaces and HTML entities
+                    if tech.description:
+                        tech.description = tech.description.replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):

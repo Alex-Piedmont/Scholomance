@@ -70,6 +70,22 @@ class ColumbiaScraper(BaseScraper):
             self.log_error("Error fetching sitemap", e)
             return []
 
+    async def _fetch_detail(self, tech: Technology, semaphore: asyncio.Semaphore) -> Technology:
+        """Fetch detail page for a technology and merge data."""
+        async with semaphore:
+            try:
+                detail = await self.scrape_technology_detail(tech.url)
+                if detail:
+                    tech.raw_data.update(detail)
+                    if detail.get("description"):
+                        tech.description = detail["description"]
+                    elif detail.get("meta_description"):
+                        tech.description = detail["meta_description"]
+                await asyncio.sleep(self.delay_seconds)
+            except Exception as e:
+                logger.debug(f"Error fetching detail for {tech.url}: {e}")
+        return tech
+
     async def scrape(self) -> AsyncIterator[Technology]:
         """Scrape all technologies from Columbia via sitemap."""
         try:
@@ -80,15 +96,24 @@ class ColumbiaScraper(BaseScraper):
             total = len(urls)
             self.log_progress(f"Found {total} technology URLs")
 
+            all_technologies = []
             for i, url in enumerate(urls):
                 tech = self._parse_url(url)
                 if tech:
-                    self._tech_count += 1
-                    yield tech
+                    all_technologies.append(tech)
 
                 # Log progress every 200 items
                 if (i + 1) % 200 == 0:
-                    self.log_progress(f"Processed {i + 1}/{total} technologies")
+                    self.log_progress(f"Parsed {i + 1}/{total} URLs")
+
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+            semaphore = asyncio.Semaphore(5)
+            tasks = [self._fetch_detail(tech, semaphore) for tech in all_technologies]
+            enriched = await asyncio.gather(*tasks)
+
+            for tech in enriched:
+                self._tech_count += 1
+                yield tech
 
             self._page_count = 1
             self.log_progress(
@@ -177,14 +202,79 @@ class ColumbiaScraper(BaseScraper):
                 detail = {"url": url}
 
                 # Try to extract description from meta tag
-                desc = soup.find("meta", attrs={"name": "description"})
-                if desc:
-                    detail["description"] = desc.get("content", "")
+                meta_desc = soup.find("meta", attrs={"name": "description"})
+                if meta_desc:
+                    detail["meta_description"] = meta_desc.get("content", "")
 
-                # Get full page text for patent extraction
-                page_text = soup.get_text()
-                if page_text:
-                    detail["full_text"] = page_text[:5000]  # Store first 5000 chars
+                # Parse structured sections from detail body
+                # Find the container that directly holds h2 elements
+                first_h2 = soup.find("h2")
+                body_div = first_h2.parent if first_h2 else None
+
+                if body_div:
+                    # Collect sections: list of (heading_text|None, [parts])
+                    raw_sections: list[tuple[Optional[str], list[str]]] = []
+                    current_heading: Optional[str] = None
+                    current_parts: list[str] = []
+
+                    for child in body_div.children:
+                        if not hasattr(child, "name") or not child.name:
+                            continue
+                        if child.name == "h2":
+                            if current_parts:
+                                raw_sections.append((current_heading, current_parts))
+                            current_heading = child.get_text(strip=True)
+                            current_parts = []
+                        elif child.name == "ul":
+                            for li in child.find_all("li"):
+                                t = li.get_text(strip=True)
+                                if t:
+                                    current_parts.append(t)
+                        elif child.name in ("p", "div"):
+                            t = child.get_text(strip=True)
+                            if t:
+                                current_parts.append(t)
+
+                    if current_parts:
+                        raw_sections.append((current_heading, current_parts))
+
+                    # Map sections to standard raw_data field names
+                    for heading, parts in raw_sections:
+                        if heading is None:
+                            # Intro paragraph before any heading
+                            detail["description"] = "\n\n".join(parts)
+                            continue
+                        h_lower = heading.lower().rstrip(":")
+                        text = "\n\n".join(parts)
+                        items = parts  # list form
+
+                        if "application" in h_lower:
+                            detail["applications"] = items
+                        elif "advantage" in h_lower:
+                            detail["advantages"] = items
+                        elif "benefit" in h_lower:
+                            detail["benefit"] = text
+                        elif "unmet need" in h_lower or "background" in h_lower:
+                            detail["background"] = text
+                        elif "technology" in h_lower and ("overview" in h_lower or ":" in heading):
+                            detail["abstract"] = text
+                        elif "market" in h_lower:
+                            detail["market_application"] = text
+                        elif "inventor" in h_lower:
+                            detail["inventors"] = items
+                        elif "patent" in h_lower:
+                            detail["ip_status"] = text
+                        elif "publication" in h_lower:
+                            detail["publications"] = text
+                        elif "reference" in h_lower:
+                            detail["reference_number"] = text
+                        elif "development" in h_lower or "stage" in h_lower:
+                            detail["development_stage"] = text
+                        else:
+                            # Unknown section — store as 'other'
+                            existing = detail.get("other", "")
+                            section_text = f"**{heading}**\n\n{text}"
+                            detail["other"] = f"{existing}\n\n{section_text}".strip() if existing else section_text
 
                 # Extract patent information
                 patent_info = self._extract_patent_info(html)
