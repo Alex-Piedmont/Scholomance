@@ -7,6 +7,7 @@ import aiohttp
 from loguru import logger
 
 from .base import BaseScraper, Technology
+from .flintbox_base import FlintboxScraper as _FBHelpers
 
 
 class CMUScraper(BaseScraper):
@@ -171,14 +172,24 @@ class CMUScraper(BaseScraper):
             # Use detail description if available, otherwise key points
             description = None
             if detail:
-                for field in ("abstract", "other", "benefit"):
-                    raw_text = detail.get(field, "")
-                    if raw_text:
-                        cleaned = re.sub(r"<[^>]+>", " ", raw_text)
-                        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-                        if cleaned and len(cleaned) > 20:
-                            description = cleaned[:2000]
-                            break
+                abstract_raw = detail.get("abstract", "")
+                parsed_sections = _FBHelpers._parse_embedded_sections(abstract_raw)
+                candidates = []
+                if parsed_sections.get("abstract"):
+                    candidates.append(("abstract", parsed_sections["abstract"]))
+                elif abstract_raw:
+                    candidates.append(("abstract", abstract_raw))
+                candidates.append(("other", detail.get("other", "")))
+                candidates.append(("benefit", detail.get("benefit", "")))
+                for field, raw_text in candidates:
+                    if not raw_text:
+                        continue
+                    if field == "other" and _FBHelpers._is_metadata(raw_text):
+                        continue
+                    cleaned = _FBHelpers._clean_html_text(raw_text)
+                    if cleaned and len(cleaned) > 20:
+                        description = cleaned[:2000]
+                        break
 
             if not description:
                 description = " | ".join(key_points) if key_points else None
@@ -207,11 +218,26 @@ class CMUScraper(BaseScraper):
                 raw_data["ip_url"] = detail.get("ipUrl")
                 raw_data["ip_date"] = detail.get("ipDate")
                 raw_data["publications"] = detail.get("publications")
-                # Store full content fields for richer detail display
-                raw_data["abstract"] = detail.get("abstract")
-                raw_data["other"] = detail.get("other")
-                raw_data["benefit"] = detail.get("benefit")
-                raw_data["market_application"] = detail.get("marketApplication")
+                # Handle 'other' — store metadata separately
+                other_raw = detail.get("other")
+                if other_raw and _FBHelpers._is_metadata(other_raw):
+                    raw_data["other_metadata"] = other_raw
+                else:
+                    raw_data["other"] = other_raw
+                # Handle abstract with embedded sections
+                abstract_raw = detail.get("abstract")
+                parsed = _FBHelpers._parse_embedded_sections(abstract_raw)
+                raw_data["abstract"] = parsed.get("abstract")
+                if parsed.get("market_application") and not detail.get("marketApplication"):
+                    raw_data["market_application"] = parsed["market_application"]
+                else:
+                    raw_data["market_application"] = detail.get("marketApplication")
+                if parsed.get("benefit") and not detail.get("benefit"):
+                    raw_data["benefit"] = parsed["benefit"]
+                else:
+                    raw_data["benefit"] = detail.get("benefit")
+                if parsed.get("reference_number"):
+                    raw_data["reference_number"] = parsed["reference_number"]
                 # Store researchers, documents, contacts, and tags
                 raw_data["researchers"] = detail.get("_members")
                 raw_data["documents"] = detail.get("_documents")
