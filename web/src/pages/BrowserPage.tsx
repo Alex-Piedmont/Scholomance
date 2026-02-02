@@ -16,7 +16,7 @@ export function BrowserPage() {
     q: searchParams.get('q') || undefined,
     top_field: searchParams.get('top_field') || undefined,
     subfield: searchParams.get('subfield') || undefined,
-    university: searchParams.get('university') || undefined,
+    university: searchParams.getAll('university').length > 0 ? searchParams.getAll('university') : undefined,
     from_date: searchParams.get('from_date') || undefined,
     to_date: searchParams.get('to_date') || undefined,
   }
@@ -37,7 +37,11 @@ export function BrowserPage() {
       if (newFilters.q) params.set('q', newFilters.q)
       if (newFilters.top_field) params.set('top_field', newFilters.top_field)
       if (newFilters.subfield) params.set('subfield', newFilters.subfield)
-      if (newFilters.university) params.set('university', newFilters.university)
+      if (newFilters.university) {
+        for (const uni of newFilters.university) {
+          params.append('university', uni)
+        }
+      }
       if (newFilters.from_date) params.set('from_date', newFilters.from_date)
       if (newFilters.to_date) params.set('to_date', newFilters.to_date)
 
@@ -63,7 +67,7 @@ export function BrowserPage() {
     setFilters({ ...filters, limit: newLimit, page: 1 })
   }
 
-  const hasActiveFilters = filters.q || filters.top_field || filters.subfield || filters.university
+  const hasActiveFilters = filters.q || filters.top_field || filters.subfield || (filters.university && filters.university.length > 0)
 
   if (error) {
     return (

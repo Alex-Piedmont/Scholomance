@@ -90,7 +90,7 @@ export interface TechnologyFilters {
   q?: string
   top_field?: string
   subfield?: string
-  university?: string
+  university?: string[]
   from_date?: string
   to_date?: string
 }

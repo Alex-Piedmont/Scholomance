@@ -36,7 +36,13 @@ function buildQueryString(params: Record<string, unknown>): string {
 
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      searchParams.append(key, String(value))
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          searchParams.append(key, String(item))
+        }
+      } else {
+        searchParams.append(key, String(value))
+      }
     }
   }
 

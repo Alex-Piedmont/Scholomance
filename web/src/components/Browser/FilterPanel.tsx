@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import { useTaxonomy, useStatsByUniversity } from '../../hooks'
 import type { TechnologyFilters } from '../../api/types'
 
@@ -76,26 +77,14 @@ export function FilterPanel({ filters, onFilterChange }: FilterPanelProps) {
           </select>
         </div>
 
-        {/* University */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            University
-          </label>
-          <select
-            value={filters.university || ''}
-            onChange={(e) =>
-              onFilterChange({ university: e.target.value || undefined })
-            }
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="">All Universities</option>
-            {universities?.map((uni) => (
-              <option key={uni.university} value={uni.university}>
-                {uni.university} ({uni.count.toLocaleString()})
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* University (multi-select) */}
+        <UniversityMultiSelect
+          selected={filters.university || []}
+          universities={universities || []}
+          onChange={(selected) =>
+            onFilterChange({ university: selected.length > 0 ? selected : undefined })
+          }
+        />
 
         {/* Clear Filters */}
         <div className="flex items-end">
@@ -116,6 +105,81 @@ export function FilterPanel({ filters, onFilterChange }: FilterPanelProps) {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+interface UniversityMultiSelectProps {
+  selected: string[]
+  universities: { university: string; count: number }[]
+  onChange: (selected: string[]) => void
+}
+
+function UniversityMultiSelect({ selected, universities, onChange }: UniversityMultiSelectProps) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggle = (uni: string) => {
+    if (selected.includes(uni)) {
+      onChange(selected.filter((u) => u !== uni))
+    } else {
+      onChange([...selected, uni])
+    }
+  }
+
+  const label =
+    selected.length === 0
+      ? 'All Universities'
+      : selected.length === 1
+        ? selected[0]
+        : `${selected.length} universities`
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        University
+      </label>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white flex items-center justify-between"
+      >
+        <span className={selected.length === 0 ? 'text-gray-500' : 'text-gray-900'}>
+          {label}
+        </span>
+        <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+          {universities.map((uni) => (
+            <label
+              key={uni.university}
+              className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(uni.university)}
+                onChange={() => toggle(uni.university)}
+                className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="flex-1">{uni.university}</span>
+              <span className="text-gray-400 ml-1">({uni.count.toLocaleString()})</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
