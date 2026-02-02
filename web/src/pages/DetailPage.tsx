@@ -1,11 +1,26 @@
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import { useTechnology } from '../hooks'
 
 export function DetailPage() {
   const { uuid } = useParams<{ uuid: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { data: tech, loading, error } = useTechnology(uuid)
+
+  // Prev/next navigation from browse list
+  const navState = location.state as { uuids?: string[]; index?: number } | null
+  const uuids = navState?.uuids
+  const currentIndex = navState?.index ?? -1
+  const prevUuid = uuids && currentIndex > 0 ? uuids[currentIndex - 1] : null
+  const nextUuid = uuids && currentIndex >= 0 && currentIndex < uuids.length - 1 ? uuids[currentIndex + 1] : null
+
+  const goToSibling = (targetUuid: string, newIndex: number) => {
+    navigate(`/technology/${targetUuid}`, {
+      state: { uuids, index: newIndex },
+      replace: true,
+    })
+  }
 
   if (loading) {
     return (
@@ -118,16 +133,44 @@ export function DetailPage() {
       <Header title="Technology Details" />
 
       <div className="p-6">
-        {/* Back Button */}
-        <button
-          onClick={() => navigate(-1)}
-          className="mb-6 text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to list
-        </button>
+        {/* Navigation Bar */}
+        <div className="mb-6 flex items-center justify-between">
+          <button
+            onClick={() => navigate(-1)}
+            className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to list
+          </button>
+
+          {uuids && uuids.length > 1 && (
+            <div className="flex items-center gap-3">
+              <button
+                disabled={!prevUuid}
+                onClick={() => prevUuid && goToSibling(prevUuid, currentIndex - 1)}
+                className="text-sm text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Last
+              </button>
+              <span className="text-xs text-gray-400">{currentIndex + 1} / {uuids.length}</span>
+              <button
+                disabled={!nextUuid}
+                onClick={() => nextUuid && goToSibling(nextUuid, currentIndex + 1)}
+                className="text-sm text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                Next
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Title */}
         <h1 className="text-3xl font-bold text-gray-900 mb-2">

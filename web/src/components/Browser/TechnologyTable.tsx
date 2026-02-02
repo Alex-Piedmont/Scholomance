@@ -120,7 +120,12 @@ export function TechnologyTable({ data, loading }: TechnologyTableProps) {
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              onClick={() => navigate(`/technology/${row.original.uuid}`)}
+              onClick={() => navigate(`/technology/${row.original.uuid}`, {
+                state: {
+                  uuids: data.map((d) => d.uuid),
+                  index: row.index,
+                },
+              })}
               className="hover:bg-gray-50 cursor-pointer"
             >
               {row.getVisibleCells().map((cell) => (
