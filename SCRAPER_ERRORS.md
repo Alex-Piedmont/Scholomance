@@ -32,4 +32,37 @@ Errors encountered during scraper enrichment and their solutions.
 **Solution:** Re-scrape affected universities with sufficient page limit to cover all technologies. Data updates on re-scrape via upsert.
 
 ### Note: Standalone Flintbox scrapers (gatech, cmu, uiuc, cornell)
-These scrapers have their own copy of `_parse_api_item_with_detail()` rather than inheriting from `FlintboxScraper`. They have the **same issues** and need the same fix applied individually. Pending Phase 1b/1c.
+These scrapers have their own copy of `_parse_api_item_with_detail()` rather than inheriting from `FlintboxScraper`. They have the **same issues** and need the same fix applied individually. ~~Pending Phase 1b/1c.~~ **Fixed in Phase 1b/1c.**
+
+## Phase 1b/1c: Standalone Flintbox scrapers (2026-02-02)
+
+### Issue 5: Same bugs in gatech, cmu, uiuc, cornell, uga
+**Scrapers affected:** gatech, cmu, uiuc, cornell, uga
+**Symptom:** Identical to Issues 1 and 2 — no innovators/keywords/patent_status, description using `other` instead of `abstract`
+**Root cause:** Each scraper had its own copy of `_parse_api_item_with_detail()` with the same bugs as the base class
+**Solution:** Applied same fix to each file: description priority `abstract` > `other` > `benefit`, and field mapping for `innovators`, `keywords`, `patent_status` before `Technology()` constructor.
+**Files:** `src/scrapers/gatech.py`, `src/scrapers/cmu.py`, `src/scrapers/uiuc.py`, `src/scrapers/cornell.py`, `src/scrapers/uga.py`
+
+## Phase 2: TechPublisher scrapers (2026-02-02)
+
+### Issue 6: Purdue description contains all sections in one blob
+**Scrapers affected:** purdue
+**Symptom:** Advantages, Applications, TRL, IP, and Keywords all lumped under "Description" header. No structured sections extracted.
+**Root cause:** Purdue's `.description` div contains all content as flat `<p>` tags with bold labels (e.g., `<b>Advantages</b>:`) rather than separate HTML headings. The scraper grabbed the whole div as `full_description` without parsing internal sections.
+**Solution:** Added `_parse_description_div()` method that walks `<p>` children, detects bold-label section headers, and splits content into `advantages`, `applications`, `trl`, `ip_text`, `keywords`, and `technology_validation` fields.
+**File:** `src/scrapers/purdue.py`
+
+### Issue 7: Purdue inventors not split into separate names
+**Symptom:** Inventors stored as single string with `\n\n\n` separators (e.g., `['Name1\n\n\nName2']`) instead of separate list items
+**Root cause:** Purdue's author collapsible body uses nested `<div><div>Name</div></div>` — no `<a>` or `<span>` tags. The parser fell through to comma-split fallback which concatenated names.
+**Solution:** Added `div > div` selector before the `a, span` fallback to handle Purdue's nested div structure.
+**File:** `src/scrapers/purdue.py`
+
+### Issue 8: Supporting documents not linked, TRL/IP/validation not rendered
+**Symptom:** Frontend missing TRL, Technology Validation, IP filing details, and supporting document links for TechPublisher scrapers
+**Root cause:** `DetailPage.tsx` only rendered Flintbox-specific fields (`documents`, `ip_status`) and didn't handle TechPublisher fields (`supporting_documents`, `trl`, `ip_text`, `technology_validation`, `contact`)
+**Solution:** Added frontend extraction and rendering for: `trl` and `technology_number` in subheader, `subtitle` below title, `technology_validation` as bulleted section, `ip_text` under IP Status, `supporting_documents` as linked downloads in sidebar, `contact` in sidebar.
+**File:** `web/src/pages/DetailPage.tsx`
+
+### Note: Other TechPublisher scrapers (uw, minnesota, princeton, michiganstate, texasstate)
+These already have full BeautifulSoup detail parsing matching WARF's pattern. Verified working — descriptions, inventors, categories, patent tables all extracted. May need Purdue-style `_parse_description_div()` if their sites use the same flat `<p>` structure (to be verified).
