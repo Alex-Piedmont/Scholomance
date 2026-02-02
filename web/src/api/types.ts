@@ -91,6 +91,7 @@ export interface TechnologyFilters {
   top_field?: string
   subfield?: string
   university?: string[]
+  patent_status?: string
   from_date?: string
   to_date?: string
 }

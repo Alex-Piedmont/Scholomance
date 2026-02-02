@@ -16,7 +16,7 @@ export function FilterPanel({ filters, onFilterChange }: FilterPanelProps) {
 
   return (
     <div className="bg-white p-4 rounded-lg shadow mb-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         {/* Search */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -86,6 +86,28 @@ export function FilterPanel({ filters, onFilterChange }: FilterPanelProps) {
           }
         />
 
+        {/* Patent Status */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Patent Status
+          </label>
+          <select
+            value={filters.patent_status || ''}
+            onChange={(e) =>
+              onFilterChange({ patent_status: e.target.value || undefined })
+            }
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">All Statuses</option>
+            <option value="filed">Filed</option>
+            <option value="granted">Granted</option>
+            <option value="pending">Pending</option>
+            <option value="provisional">Provisional</option>
+            <option value="expired">Expired</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </div>
+
         {/* Clear Filters */}
         <div className="flex items-end">
           <button
@@ -95,6 +117,7 @@ export function FilterPanel({ filters, onFilterChange }: FilterPanelProps) {
                 top_field: undefined,
                 subfield: undefined,
                 university: undefined,
+                patent_status: undefined,
                 from_date: undefined,
                 to_date: undefined,
               })
