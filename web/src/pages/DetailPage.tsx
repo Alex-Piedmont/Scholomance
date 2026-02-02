@@ -87,10 +87,15 @@ export function DetailPage() {
     return status.charAt(0).toUpperCase() + status.slice(1)
   }
 
+  const dateFmt = { year: 'numeric' as const, month: 'long' as const, day: 'numeric' as const }
+
+  const publishedRaw = data.publishedOn || data.webPublished
+  const publishedDate = publishedRaw
+    ? new Date(publishedRaw).toLocaleDateString('en-US', dateFmt)
+    : null
+
   const updatedDate = (tech.updated_at || tech.scraped_at)
-    ? new Date((tech.updated_at || tech.scraped_at)!).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      })
+    ? new Date((tech.updated_at || tech.scraped_at)!).toLocaleDateString('en-US', dateFmt)
     : null
 
   const patentColorClass =
@@ -167,6 +172,12 @@ export function DetailPage() {
             <>
               <span className="text-gray-300">|</span>
               <span>TRL: {data.trl}</span>
+            </>
+          )}
+          {publishedDate && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span>Published {publishedDate}</span>
             </>
           )}
           {updatedDate && (

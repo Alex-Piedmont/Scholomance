@@ -39,6 +39,8 @@ export interface ParsedRawData {
   contactDetail: { name?: string; email?: string } | undefined
   subtitle: string | undefined
   technologyNumber: string | undefined
+  publishedOn: string | undefined
+  webPublished: string | undefined
 }
 
 export function stripHtml(html: string): string {
@@ -98,5 +100,7 @@ export function parseRawData(tech: TechnologyDetail): ParsedRawData {
     contactDetail: r?.contact as { name?: string; email?: string } | undefined,
     subtitle: r?.subtitle as string | undefined,
     technologyNumber: r?.technology_number as string | undefined,
+    publishedOn: r?.published_on as string | undefined,
+    webPublished: r?.web_published as string | undefined,
   }
 }
