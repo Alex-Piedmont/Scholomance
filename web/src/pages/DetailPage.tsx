@@ -453,11 +453,17 @@ export function DetailPage() {
               {researchers && researchers.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Researchers</h3>
-                  <ul className="space-y-1">
+                  <div className="flex flex-wrap gap-2">
                     {researchers.map((r, i) => (
-                      <li key={i} className="text-sm text-gray-700">{r.name}</li>
+                      <button
+                        key={i}
+                        onClick={() => navigate(`/browse?q=${encodeURIComponent(r.name || '')}`)}
+                        className="px-3 py-1 bg-purple-50 text-purple-700 text-sm rounded-full hover:bg-purple-100 transition-colors"
+                      >
+                        {r.name}
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
 
@@ -465,11 +471,17 @@ export function DetailPage() {
               {inventors && inventors.length > 0 && !researchers?.length && (
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Inventors</h3>
-                  <ul className="space-y-1">
+                  <div className="flex flex-wrap gap-2">
                     {inventors.map((inv, i) => (
-                      <li key={i} className="text-sm text-gray-700">{inv}</li>
+                      <button
+                        key={i}
+                        onClick={() => navigate(`/browse?q=${encodeURIComponent(inv)}`)}
+                        className="px-3 py-1 bg-purple-50 text-purple-700 text-sm rounded-full hover:bg-purple-100 transition-colors"
+                      >
+                        {inv}
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
 
