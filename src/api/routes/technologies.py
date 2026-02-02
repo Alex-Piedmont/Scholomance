@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, or_
+from sqlalchemy import String, func, or_
 
 from ...database import db, Technology
 from ...taxonomy import TAXONOMY
@@ -27,7 +27,7 @@ def list_technologies(
     q: Optional[str] = Query(None, description="Search in title and description"),
     top_field: Optional[str] = Query(None, description="Filter by top field"),
     subfield: Optional[str] = Query(None, description="Filter by subfield"),
-    university: Optional[str] = Query(None, description="Filter by university"),
+    university: Optional[list[str]] = Query(None, description="Filter by university (multi-select)"),
     patent_status: Optional[str] = Query(None, description="Filter by patent status (unknown, pending, provisional, filed, granted, expired)"),
     from_date: Optional[datetime] = Query(None, description="Filter by first_seen >= date"),
     to_date: Optional[datetime] = Query(None, description="Filter by first_seen <= date"),
@@ -43,6 +43,8 @@ def list_technologies(
                 or_(
                     Technology.title.ilike(search_pattern),
                     Technology.description.ilike(search_pattern),
+                    Technology.raw_data.cast(String).ilike(search_pattern),
+                    Technology.keywords.cast(String).ilike(search_pattern),
                 )
             )
 
@@ -53,7 +55,7 @@ def list_technologies(
             query = query.filter(Technology.subfield == subfield)
 
         if university:
-            query = query.filter(Technology.university == university)
+            query = query.filter(Technology.university.in_(university))
 
         if patent_status:
             query = query.filter(Technology.patent_status == patent_status)
