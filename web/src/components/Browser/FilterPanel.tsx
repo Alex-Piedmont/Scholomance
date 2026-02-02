@@ -140,7 +140,9 @@ interface UniversityMultiSelectProps {
 
 function UniversityMultiSelect({ selected, universities, onChange }: UniversityMultiSelectProps) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const ref = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -152,6 +154,15 @@ function UniversityMultiSelect({ selected, universities, onChange }: UniversityM
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  useEffect(() => {
+    if (open && searchRef.current) {
+      searchRef.current.focus()
+    }
+    if (!open) {
+      setSearch('')
+    }
+  }, [open])
+
   const toggle = (uni: string) => {
     if (selected.includes(uni)) {
       onChange(selected.filter((u) => u !== uni))
@@ -159,6 +170,10 @@ function UniversityMultiSelect({ selected, universities, onChange }: UniversityM
       onChange([...selected, uni])
     }
   }
+
+  const filtered = search
+    ? universities.filter((u) => u.university.toLowerCase().includes(search.toLowerCase()))
+    : universities
 
   const label =
     selected.length === 0
@@ -185,22 +200,38 @@ function UniversityMultiSelect({ selected, universities, onChange }: UniversityM
         </svg>
       </button>
       {open && (
-        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-          {universities.map((uni) => (
-            <label
-              key={uni.university}
-              className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(uni.university)}
-                onChange={() => toggle(uni.university)}
-                className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="flex-1">{uni.university}</span>
-              <span className="text-gray-400 ml-1">({uni.count.toLocaleString()})</span>
-            </label>
-          ))}
+        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg">
+          <div className="p-2 border-b border-gray-200">
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search universities..."
+              className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div className="max-h-52 overflow-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
+            ) : (
+              filtered.map((uni) => (
+                <label
+                  key={uni.university}
+                  className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(uni.university)}
+                    onChange={() => toggle(uni.university)}
+                    className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="flex-1">{uni.university}</span>
+                  <span className="text-gray-400 ml-1">({uni.count.toLocaleString()})</span>
+                </label>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>
