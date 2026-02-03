@@ -1,12 +1,22 @@
-"""Wayne State University scraper using Algolia API."""
+"""Wayne State University scraper using Algolia API with Playwright detail fetching.
 
+Uses Algolia search API for technology listings, then Playwright for detail pages
+since TechnologyPublisher renders content via JavaScript.
+"""
+
+import asyncio
+import html as html_mod
 import re
 from typing import AsyncIterator, Optional
 
 import aiohttp
+from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from loguru import logger
 
 from .base import BaseScraper, Technology
+
+DETAIL_CONCURRENCY = 3
 
 
 class WayneStateScraper(BaseScraper):
@@ -22,13 +32,16 @@ class WayneStateScraper(BaseScraper):
     ALGOLIA_INDEX = "Prod_Inteum_TechnologyPublisher_wayne"
     ALGOLIA_URL = f"https://{ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/{ALGOLIA_INDEX}/query"
 
-    def __init__(self, delay_seconds: float = 0.3):
+    def __init__(self, delay_seconds: float = 0.5):
         super().__init__(
             university_code="waynestate",
             base_url=self.BASE_URL,
             delay_seconds=delay_seconds,
         )
         self._session: Optional[aiohttp.ClientSession] = None
+        self._browser: Optional[Browser] = None
+        self._context: Optional[BrowserContext] = None
+        self._page: Optional[Page] = None
 
     @property
     def name(self) -> str:
@@ -47,8 +60,36 @@ class WayneStateScraper(BaseScraper):
             self._session = None
             logger.debug("HTTP session closed")
 
+    async def _init_browser(self) -> None:
+        """Initialize Playwright browser for detail page fetching."""
+        if self._browser is None:
+            playwright = await async_playwright().start()
+            self._browser = await playwright.chromium.launch(
+                headless=True,
+                args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+            )
+            self._context = await self._browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            )
+            self._page = await self._context.new_page()
+            logger.debug("Playwright browser initialized for Wayne State")
+
+    async def _close_browser(self) -> None:
+        """Close Playwright browser."""
+        if self._page:
+            await self._page.close()
+            self._page = None
+        if self._context:
+            await self._context.close()
+            self._context = None
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+            logger.debug("Playwright browser closed")
+
     async def scrape(self) -> AsyncIterator[Technology]:
-        """Scrape all technologies from Wayne State via Algolia API."""
+        """Scrape all technologies from Wayne State via Algolia API with Playwright detail fetching."""
         try:
             await self._init_session()
 
@@ -66,6 +107,8 @@ class WayneStateScraper(BaseScraper):
                 "attributesToRetrieve": ["*"],
             }
 
+            all_technologies: list[Technology] = []
+
             async with self._session.post(
                 self.ALGOLIA_URL, headers=headers, json=payload
             ) as response:
@@ -81,17 +124,42 @@ class WayneStateScraper(BaseScraper):
                 for i, item in enumerate(hits):
                     tech = self._parse_algolia_hit(item)
                     if tech:
-                        self._tech_count += 1
-                        yield tech
+                        all_technologies.append(tech)
 
                     if (i + 1) % 100 == 0:
-                        self.log_progress(f"Processed {i + 1}/{total} technologies")
+                        self.log_progress(f"Processed {i + 1}/{total} from API")
+
+            # Fetch detail pages using Playwright for full content
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+            await self._init_browser()
+
+            for i, tech in enumerate(all_technologies):
+                try:
+                    detail = await self.scrape_technology_detail(tech.url)
+                    if detail:
+                        tech.raw_data.update(detail)
+                        # Update top-level fields from detail
+                        if detail.get("full_description") and (not tech.description or "..." in tech.description):
+                            tech.description = detail["full_description"]
+                        if detail.get("inventors"):
+                            tech.innovators = detail["inventors"]
+                    await asyncio.sleep(self.delay_seconds)
+                except Exception as e:
+                    logger.debug(f"Error fetching detail for {tech.url}: {e}")
+
+                if (i + 1) % 10 == 0:
+                    self.log_progress(f"Enriched {i + 1}/{len(all_technologies)} technologies")
+
+            for tech in all_technologies:
+                self._tech_count += 1
+                yield tech
 
             self._page_count = 1
             self.log_progress(f"Completed scraping: {self._tech_count} technologies")
 
         finally:
             await self._close_session()
+            await self._close_browser()
 
     async def scrape_page(self, page_num: int) -> list[Technology]:
         """Scrape technologies - uses single API call."""
@@ -127,6 +195,9 @@ class WayneStateScraper(BaseScraper):
                 or truncated_description.strip()
                 or full_description[:2000].strip()
             )
+            # Clean HTML entities
+            if description:
+                description = html_mod.unescape(description)
 
             # Parse categories from finalPathCategories
             categories = []
@@ -159,6 +230,10 @@ class WayneStateScraper(BaseScraper):
                     keywords = [k.strip() for k in keywords_raw.split(",") if k.strip()]
 
             all_keywords = list(set(categories + keywords)) if (categories or keywords) else None
+
+            # Clean &nbsp; from full_description
+            if full_description:
+                full_description = full_description.replace("&nbsp;", " ").replace("\xa0", " ")
 
             raw_data = {
                 "tech_id": tech_id,
@@ -202,6 +277,8 @@ class WayneStateScraper(BaseScraper):
         import html as html_mod
 
         text = html_mod.unescape(text)
+        # Clean literal &nbsp; strings and non-breaking spaces
+        text = text.replace("&nbsp;", " ").replace("\xa0", " ")
 
         section_patterns = [
             ("short_description", r"SHORT\s+DESCRIPTION"),
@@ -245,7 +322,11 @@ class WayneStateScraper(BaseScraper):
                 if current_key == "inventors_section":
                     sections[current_key] = part
                 else:
+                    # Clean whitespace and leading ": ·" prefixes
                     cleaned = re.sub(r"\s+", " ", part).strip()
+                    cleaned = re.sub(r"^[:\s·•\-]+", "", cleaned).strip()
+                    # Convert inline bullets to newlines for cleaner display
+                    cleaned = re.sub(r"\s*[·•]\s*", "\n", cleaned).strip()
                     if cleaned:
                         sections[current_key] = cleaned
 
@@ -264,19 +345,116 @@ class WayneStateScraper(BaseScraper):
         return sections
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
-        """Scrape detailed information from a technology's detail page."""
-        await self._init_session()
-        try:
-            async with self._session.get(url) as response:
-                if response.status != 200:
-                    return None
-                return {"url": url}
-        except Exception as e:
-            logger.debug(f"Error fetching technology detail: {e}")
+        """Scrape detailed information from a technology's detail page using Playwright."""
+        if not url or not self._page:
             return None
 
-    async def _init_browser(self) -> None:
-        await self._init_session()
+        try:
+            await self._page.goto(url, wait_until="networkidle", timeout=60000)
+            await asyncio.sleep(1)
 
-    async def _close_browser(self) -> None:
-        await self._close_session()
+            # Get text content
+            text = await self._page.inner_text("body")
+            detail: dict = {"url": url}
+
+            # Find start of main content (after tech ID)
+            tech_id_match = re.search(r"WSU Tech#:\s*[\d-]+", text)
+            if tech_id_match:
+                text = text[tech_id_match.end():]
+
+            # Section patterns with their field names
+            sections = [
+                ("tech_description", r"Technology\s+Description:?"),
+                ("applications", r"Commercial\s+Applications?:?"),
+                ("development_stage", r"Stage\s+of\s+Development:?"),
+                ("advantages", r"(?:Benefit\s+Analysis|Competitive\s+Advantages?):?"),
+                ("ip_status", r"(?:Patent\s+Status|Intellectual\s+Property\s+Status):?"),
+                ("publications", r"(?:References?|Publications?|Related\s+Publications[^:]*):?"),
+                ("categories", r"Categories:?"),
+                ("inventors_section", r"Inventors?:"),
+                ("keywords_section", r"Keywords?:"),
+            ]
+
+            # Find full description (text before first section)
+            first_section_idx = len(text)
+            for _, pattern in sections:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match and match.start() < first_section_idx:
+                    first_section_idx = match.start()
+
+            if first_section_idx > 50:
+                desc_text = text[:first_section_idx].strip()
+                # Clean up description
+                desc_text = re.sub(r'\s+', ' ', desc_text).strip()
+                if desc_text and len(desc_text) > 50:
+                    detail["full_description"] = desc_text
+
+            # Parse each section
+            for field, pattern in sections:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if not match:
+                    continue
+
+                # Find the end of this section (start of next section or footer)
+                start = match.end()
+                end = len(text)
+
+                # Find next section
+                for _, next_pat in sections:
+                    next_match = re.search(next_pat, text[start:], re.IGNORECASE)
+                    if next_match:
+                        candidate_end = start + next_match.start()
+                        if candidate_end < end:
+                            end = candidate_end
+
+                # Find footer markers
+                for footer in ["Bookmark this page", "Download as PDF", "For Information, Contact", "© 20"]:
+                    footer_idx = text.find(footer, start)
+                    if footer_idx > 0 and footer_idx < end:
+                        end = footer_idx
+
+                content = text[start:end].strip()
+                if not content:
+                    continue
+
+                # Parse content based on field type
+                lines = [line.strip().lstrip("•·-").strip() for line in content.split("\n") if line.strip()]
+                lines = [l for l in lines if l and len(l) > 1]
+
+                if field == "tech_description":
+                    # Technology Description goes to abstract
+                    detail["abstract"] = " ".join(lines)
+                elif field in ("applications", "development_stage"):
+                    detail[field] = lines if len(lines) > 1 else lines[0] if lines else None
+                elif field == "advantages":
+                    detail["advantages"] = lines if len(lines) > 1 else [content] if content else None
+                elif field == "ip_status":
+                    ip_text = " ".join(lines)
+                    detail["ip_status"] = ip_text
+                    # Extract patent numbers
+                    patent_nums = re.findall(r'\b\d{1,2},\d{3},\d{3}\b', ip_text)
+                    if patent_nums:
+                        detail["patent_numbers"] = patent_nums
+                elif field == "publications":
+                    pubs = [{"text": l} for l in lines if len(l) > 20 and not l.startswith("http")]
+                    if pubs:
+                        detail["publications"] = pubs
+                elif field == "categories":
+                    cats = [c.strip() for c in content.split(",") if c.strip()]
+                    if cats:
+                        detail["detail_categories"] = cats
+                elif field == "inventors_section":
+                    inventors = [l for l in lines if len(l) > 2 and not any(x in l.lower() for x in ["keywords", "home", "search"])]
+                    if inventors:
+                        detail["inventors"] = inventors
+                elif field == "keywords_section":
+                    kws = [l for l in lines if len(l) > 1 and l.lower() not in ["home", "search"]]
+                    if kws:
+                        detail["detail_keywords"] = kws
+
+            return detail if len(detail) > 1 else None
+
+        except Exception as e:
+            logger.debug(f"Error scraping detail page {url}: {e}")
+            return None
+

@@ -104,6 +104,7 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 | `columbia` | Full re-scrape needed (detail fetching applied to ~15/1211 techs) |
 | `uconn` | Fix `&nbsp;` in Market Opportunity; missing bullets in Market Application; re-scrape |
 | `cmu` | User re-check needed; "Granted" ipStatus confirmed correct in data |
+| `gatech` | API returns 500 error on page 18; only 408/~744 techs scraped; retry later |
 
 ---
 
