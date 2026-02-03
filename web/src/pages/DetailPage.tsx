@@ -5,6 +5,7 @@ import { useTechnology } from '../hooks'
 import { parseRawData } from '../components/Detail/parseRawData'
 import { ContentSections } from '../components/Detail/ContentSections'
 import { SidePanel } from '../components/Detail/SidePanel'
+import { getUniversityName } from '../utils/universityNames'
 
 export function DetailPage() {
   const { uuid } = useParams<{ uuid: string }>()
@@ -152,7 +153,7 @@ export function DetailPage() {
 
         {/* Subheader */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 mb-8">
-          <span className="font-medium">{tech.university}</span>
+          <span className="font-medium">{getUniversityName(tech.university)}</span>
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${patentColorClass}`}>
             {formatPatentStatus(tech.patent_status)}
           </span>

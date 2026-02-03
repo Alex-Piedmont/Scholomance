@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useStatsByUniversity } from '../../hooks'
 import type { TechnologyFilters } from '../../api/types'
+import { getUniversityName } from '../../utils/universityNames'
 
 interface FilterPanelProps {
   filters: TechnologyFilters
@@ -127,14 +128,14 @@ function UniversityMultiSelect({ selected, universities, onChange }: UniversityM
   }
 
   const filtered = search
-    ? universities.filter((u) => u.university.toLowerCase().includes(search.toLowerCase()))
+    ? universities.filter((u) => getUniversityName(u.university).toLowerCase().includes(search.toLowerCase()))
     : universities
 
   const label =
     selected.length === 0
       ? 'All Universities'
       : selected.length === 1
-        ? selected[0]
+        ? getUniversityName(selected[0])
         : `${selected.length} universities`
 
   return (
@@ -181,7 +182,7 @@ function UniversityMultiSelect({ selected, universities, onChange }: UniversityM
                     onChange={() => toggle(uni.university)}
                     className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="flex-1">{uni.university}</span>
+                  <span className="flex-1">{getUniversityName(uni.university)}</span>
                   <span className="text-gray-400 ml-1">({uni.count.toLocaleString()})</span>
                 </label>
               ))

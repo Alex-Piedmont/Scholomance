@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-table'
 import { useState } from 'react'
 import type { TechnologySummary } from '../../api/types'
+import { getUniversityName } from '../../utils/universityNames'
 
 interface TechnologyTableProps {
   data: TechnologySummary[]
@@ -34,7 +35,7 @@ const columns = [
     header: 'University',
     enableSorting: true,
     cell: (info) => (
-      <span className="text-gray-600">{info.getValue()}</span>
+      <span className="text-gray-600">{getUniversityName(info.getValue())}</span>
     ),
   }),
   columnHelper.accessor('published_on', {

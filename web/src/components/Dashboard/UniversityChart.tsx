@@ -8,6 +8,7 @@ import {
   Legend,
 } from 'recharts'
 import type { UniversityCount } from '../../api/types'
+import { getUniversityName } from '../../utils/universityNames'
 
 interface UniversityChartProps {
   data: UniversityCount[] | null
@@ -51,15 +52,16 @@ export function UniversityChart({ data, loading }: UniversityChartProps) {
 
   const chartData = [
     ...top.map((item) => ({
-      name: item.university,
+      name: getUniversityName(item.university),
+      code: item.university,
       value: item.count,
     })),
-    ...(otherCount > 0 ? [{ name: 'Other', value: otherCount }] : []),
+    ...(otherCount > 0 ? [{ name: 'Other', code: '', value: otherCount }] : []),
   ]
 
-  const handleClick = (data: { name: string }) => {
-    if (data.name !== 'Other') {
-      navigate(`/browse?university=${encodeURIComponent(data.name)}`)
+  const handleClick = (data: { code: string }) => {
+    if (data.code) {
+      navigate(`/browse?university=${encodeURIComponent(data.code)}`)
     }
   }
 
