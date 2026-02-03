@@ -40,7 +40,7 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 
 | # | Code | University | Status | Notes |
 |---|------|-----------|--------|-------|
-| 14 | `warf` | Wisconsin (WARF) | Unreviewed | |
+| 14 | `warf` | Wisconsin (WARF) | **Approved** | Rewrote detail parser for structured sections; invention/overview→abstract, applications/advantages→arrays, Included IP→ip_text; fixed author parsing from nested divs. Full re-scrape done. |
 | 15 | `uw` | Washington | Unreviewed | |
 | 16 | `minnesota` | Minnesota | Unreviewed | |
 | 17 | `purdue` | Purdue | **Approved** | Phase 2 fix: section parsing + inventor splitting |
@@ -86,8 +86,8 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 |----------|-------|----------|-----------|------------|
 | Flintbox Base | 8 | 7 | 1 | 0 |
 | Flintbox Standalone | 5 | 4 | 1 | 0 |
-| TechPublisher | 5 | 1 | 0 | 4 |
+| TechPublisher | 5 | 2 | 0 | 3 |
 | Algolia API | 6 | 2 | 0 | 4 |
 | RSS Feed | 5 | 1 | 0 | 4 |
 | Custom | 6 | 1 | 0 | 5 |
-| **Total** | **35** | **16** | **2** | **17** |
+| **Total** | **35** | **17** | **2** | **16** |
