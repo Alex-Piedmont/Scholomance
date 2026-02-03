@@ -35,8 +35,21 @@ class MinnesotaScraper(TechPublisherScraper):
             try:
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
+                    # Clean HTML from text fields
+                    for key in ("abstract", "full_description", "development_stage", "publications"):
+                        raw = detail.get(key)
+                        if raw and isinstance(raw, str) and "<" in raw:
+                            from bs4 import BeautifulSoup as BS
+                            s = BS(raw, "html.parser")
+                            raw = s.get_text(separator=" ", strip=True)
+                            raw = raw.replace('\xa0', ' ').replace('&nbsp;', ' ')
+                            raw = re.sub(r'[ \t]+', ' ', raw)
+                            detail[key] = raw.strip()
+
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
+                    if detail.get("abstract"):
+                        tech.description = detail["abstract"]
+                    elif detail.get("full_description") and not tech.description:
                         tech.description = detail["full_description"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
@@ -122,65 +135,113 @@ class MinnesotaScraper(TechPublisherScraper):
             if app_match:
                 detail["application_number"] = app_match.group(1).strip()
 
-            # Main description - look for product description content
-            # TechPublisher uses a product-description-box or description div
-            desc_box = soup.select_one(".product-description-box, .description, .c_content")
-            if desc_box:
-                detail["full_description"] = desc_box.get_text(separator="\n", strip=True)
-                detail["description_html"] = str(desc_box)
+            # Parse the description div for structured sections
+            desc_div = soup.select_one(".description.grey-text")
+            if desc_div:
+                section_keywords = {
+                    "benefits and features", "benefits", "features", "advantages",
+                    "applications", "application",
+                    "phase of development", "development stage", "stage of development",
+                    "researchers", "publications", "references", "citations",
+                }
 
-            # If no description box found, try the main content area
-            if "full_description" not in detail:
-                # Look for the main text content after h1
-                h1 = soup.find("h1")
-                if h1:
-                    content_parts = []
-                    for sibling in h1.find_next_siblings():
-                        if sibling.name in ("h2", "h3", "h4") and any(
-                            kw in sibling.get_text().lower()
-                            for kw in ["benefit", "feature", "application", "advantage", "author", "inventor"]
-                        ):
-                            break
-                        if sibling.name == "p":
-                            t = sibling.get_text(strip=True)
-                            if t:
-                                content_parts.append(t)
-                    if content_parts:
-                        detail["full_description"] = "\n".join(content_parts)
+                current_heading = None
+                current_parts: list[str] = []
+                sections: list[tuple[str | None, list[str]]] = []
 
-            # Parse sections by headings (h2, h3, strong)
-            sections = {}
-            for heading in soup.find_all(["h2", "h3", "strong"]):
-                heading_text = heading.get_text(strip=True).lower()
-                items = []
+                for child in desc_div.children:
+                    if not hasattr(child, "name") or not child.name:
+                        continue
+                    txt = child.get_text(strip=True)
+                    if not txt:
+                        continue
 
-                # Collect list items after this heading
-                next_el = heading.find_next_sibling()
-                while next_el:
-                    if next_el.name in ("h2", "h3", "strong") and next_el.get_text(strip=True):
-                        break
-                    if next_el.name == "ul":
-                        for li in next_el.find_all("li"):
+                    if child.name == "p":
+                        # Check if this <p> is a section heading (contains <b> with known keyword)
+                        b_tag = child.find("b") or child.find("strong")
+                        is_heading = False
+                        if b_tag:
+                            b_text = b_tag.get_text(strip=True).rstrip(":").strip().lower()
+                            if b_text in section_keywords:
+                                is_heading = True
+
+                        if is_heading:
+                            if current_parts:
+                                sections.append((current_heading, current_parts))
+                            current_heading = txt.rstrip(":")
+                            current_parts = []
+                        else:
+                            current_parts.append(txt)
+                    elif child.name == "ul":
+                        for li in child.find_all("li"):
                             t = li.get_text(strip=True)
                             if t:
-                                items.append(t)
-                    elif next_el.name == "p":
-                        t = next_el.get_text(strip=True)
-                        if t:
-                            items.append(t)
-                    next_el = next_el.find_next_sibling()
+                                current_parts.append(t)
+                    elif child.name in ("h2", "h3"):
+                        if current_parts:
+                            sections.append((current_heading, current_parts))
+                        current_heading = txt
+                        current_parts = []
+                        # Collect inline content after h2/h3 (e.g. <b>TRL: 8-9</b><br/>text)
+                        nxt = child.next_sibling
+                        while nxt:
+                            if hasattr(nxt, "name") and nxt.name in ("p", "ul", "h2", "h3", "div"):
+                                break
+                            t = nxt.get_text(strip=True) if hasattr(nxt, "get_text") else str(nxt).strip()
+                            if t:
+                                current_parts.append(t)
+                            nxt = nxt.next_sibling
 
-                if items:
-                    sections[heading_text] = items
+                if current_parts:
+                    sections.append((current_heading, current_parts))
 
-            # Map sections to standard fields
-            for key, items in sections.items():
-                if "benefit" in key or "feature" in key:
-                    detail["advantages"] = items
-                elif "application" in key:
-                    detail["applications"] = items
-                elif "phase" in key or "development" in key or "stage" in key:
-                    detail["development_stage"] = " ".join(items)
+                # Map sections to standard field names
+                description_parts = []
+                abstract_parts: list[str] = []
+
+                for heading, parts in sections:
+                    if heading is None:
+                        description_parts.extend(parts)
+                        continue
+                    h_lower = heading.lower().rstrip(":")
+                    text = "\n\n".join(parts)
+
+                    if "benefit" in h_lower or "feature" in h_lower or "advantage" in h_lower:
+                        detail["advantages"] = parts
+                    elif "application" in h_lower:
+                        detail["applications"] = parts
+                    elif "development" in h_lower or "stage" in h_lower or "phase" in h_lower:
+                        detail["development_stage"] = text
+                    elif "researcher" in h_lower:
+                        # Parse researcher names from the h2's sibling <ul> in the soup
+                        researchers_heading = desc_div.find("h2", string=re.compile(r"Researcher", re.I))
+                        if researchers_heading:
+                            ul = researchers_heading.find_next_sibling("ul")
+                            if ul:
+                                names = []
+                                for li in ul.find_all("li"):
+                                    b = li.find("b") or li.find("strong")
+                                    if b:
+                                        # Name is in the bold tag, strip degree suffixes
+                                        raw_name = b.get_text(strip=True)
+                                        # Remove trailing degree like ", PhD" or ", MD"
+                                        raw_name = re.sub(r',?\s*(?:PhD|MD|MS|PharmD|DVM|DO|JD|DrPH)$', '', raw_name).strip()
+                                        if raw_name:
+                                            names.append(raw_name)
+                                if names:
+                                    detail["inventors"] = names
+                        if not detail.get("inventors") and parts:
+                            detail["researchers"] = parts
+                    elif "publication" in h_lower or "reference" in h_lower or "citation" in h_lower:
+                        detail["publications"] = text
+                    else:
+                        # Sub-technology heading — add to abstract
+                        abstract_parts.append(text)
+
+                if description_parts:
+                    detail["full_description"] = "\n\n".join(description_parts)
+                if abstract_parts:
+                    detail["abstract"] = "\n\n".join(abstract_parts)
 
             # Collapsible sections (Authors, References, Supporting documents)
             for collapsible in soup.select(".collapsible-header"):
@@ -191,12 +252,20 @@ class MinnesotaScraper(TechPublisherScraper):
 
                 if "author" in header_text or "inventor" in header_text:
                     inventors = []
-                    for item in body.select("a, .inventor-name, span"):
-                        name = item.get_text(strip=True)
-                        if name and len(name) > 2 and name not in inventors:
-                            inventors.append(name)
+                    for div in body.find_all("div", recursive=False):
+                        inner = div.find("div")
+                        if inner:
+                            n = inner.get_text(strip=True)
+                        else:
+                            n = div.get_text(strip=True)
+                        if n and len(n) > 2 and n not in inventors:
+                            inventors.append(n)
                     if not inventors:
-                        # Try plain text
+                        for item in body.select("a, .inventor-name, span"):
+                            name = item.get_text(strip=True)
+                            if name and len(name) > 2 and name not in inventors:
+                                inventors.append(name)
+                    if not inventors:
                         names = [n.strip() for n in body.get_text().split(",") if n.strip()]
                         inventors = [n for n in names if len(n) > 2]
                     if inventors:
