@@ -36,7 +36,10 @@ class UWScraper(TechPublisherScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
+                    # Prefer abstract or full_description for top-level description
+                    if detail.get("abstract"):
+                        tech.description = detail["abstract"]
+                    elif detail.get("full_description") and not tech.description:
                         tech.description = detail["full_description"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
@@ -131,13 +134,14 @@ class UWScraper(TechPublisherScraper):
                     if parts:
                         detail["full_description"] = "\n".join(parts)
 
-            # Structured sections by headings
-            for heading in soup.find_all(["h2", "h3", "strong"]):
-                htxt = heading.get_text(strip=True).lower()
+            # Structured sections by headings (UW uses h6 for section headers)
+            heading_tags = ["h2", "h3", "h4", "h5", "h6", "strong"]
+            for heading in soup.find_all(heading_tags):
+                htxt = heading.get_text(strip=True).lower().rstrip(":")
                 items = []
                 nxt = heading.find_next_sibling()
                 while nxt:
-                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
+                    if nxt.name in heading_tags and nxt.get_text(strip=True):
                         break
                     if nxt.name == "ul":
                         for li in nxt.find_all("li"):
@@ -150,15 +154,17 @@ class UWScraper(TechPublisherScraper):
                 if not items:
                     continue
                 if "problem" in htxt:
-                    detail["problem"] = " ".join(items)
+                    detail["background"] = "\n\n".join(items)
                 elif "solution" in htxt:
-                    detail["solution"] = " ".join(items)
+                    detail["abstract"] = "\n\n".join(items)
                 elif "competitive" in htxt or "advantage" in htxt or "benefit" in htxt:
                     detail["advantages"] = items
                 elif "application" in htxt:
                     detail["applications"] = items
                 elif "development" in htxt or "stage" in htxt or "phase" in htxt:
-                    detail["development_stage"] = " ".join(items)
+                    detail["development_stage"] = "\n\n".join(items)
+                elif "patent" in htxt:
+                    detail["ip_status"] = "\n\n".join(items)
 
             # Collapsible sections
             for coll in soup.select(".collapsible-header"):
@@ -168,10 +174,20 @@ class UWScraper(TechPublisherScraper):
                     continue
                 if "author" in htxt or "inventor" in htxt:
                     inventors = []
-                    for el in body.select("a, span"):
-                        n = el.get_text(strip=True)
+                    # Authors are in nested divs (like WARF)
+                    for div in body.find_all("div", recursive=False):
+                        inner = div.find("div")
+                        if inner:
+                            n = inner.get_text(strip=True)
+                        else:
+                            n = div.get_text(strip=True)
                         if n and len(n) > 2 and n not in inventors:
                             inventors.append(n)
+                    if not inventors:
+                        for el in body.select("a, span"):
+                            n = el.get_text(strip=True)
+                            if n and len(n) > 2 and n not in inventors:
+                                inventors.append(n)
                     if not inventors:
                         inventors = [n.strip() for n in body.get_text().split(",") if len(n.strip()) > 2]
                     if inventors:
