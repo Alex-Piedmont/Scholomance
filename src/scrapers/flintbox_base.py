@@ -4,6 +4,7 @@ import re
 from typing import AsyncIterator, Optional
 
 import aiohttp
+from bs4 import BeautifulSoup
 from loguru import logger
 
 from .base import BaseScraper, Technology
@@ -229,7 +230,7 @@ class FlintboxScraper(BaseScraper):
             + r"|(?P<background>Background\s*(?:&amp;|&)\s*Unmet\s+Need\s*:?\s*)"
             + r"|(?P<overview>Technology\s+Overview\s*:?\s*)"
             + r"|(?P<ip>Intellectual\s+Property\s*:?\s*)"
-            + r"|(?P<patents>Patents?\s*:?\s*)"
+            + r"|(?P<patents>Patents?\s*:\s*)"
             + r"|(?P<pubs>Publications?\s*:?\s*)"
             + r"|(?P<dev>Development(?:al)?\s+Stage\s*:?\s*)"
             + r"|(?P<researcher>Researchers?\s*\(?\s*s?\s*\)?\s*:?\s*)"
@@ -286,7 +287,27 @@ class FlintboxScraper(BaseScraper):
                 result["publications_html"] = content
             elif name == "refnum":
                 result["reference_number"] = content
-            # ip, dev, researcher, keywords — not needed for display
+            elif name == "ip":
+                result["ip_text"] = content
+            elif name == "dev":
+                result["development_stage"] = content
+            elif name == "researcher":
+                result["researchers_html"] = content
+            elif name == "keywords":
+                result["keywords_html"] = content
+
+        # Clean HTML from list-style fields: extract text items from <li> tags
+        for key in ("market_application", "benefit", "ip_text", "development_stage",
+                     "publications_html", "researchers_html", "keywords_html"):
+            raw = result.get(key)
+            if not raw:
+                continue
+            soup = BeautifulSoup(raw, "html.parser")
+            items = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
+            if items:
+                result[key] = "\n".join(items)
+            else:
+                result[key] = soup.get_text(separator=" ", strip=True)
 
         return result
 
@@ -445,6 +466,37 @@ class FlintboxScraper(BaseScraper):
                     raw_data["patents_html"] = parsed["patents"]
                 if parsed.get("publications_html"):
                     raw_data["publications_html"] = parsed["publications_html"]
+                if parsed.get("ip_text"):
+                    raw_data["ip_text"] = parsed["ip_text"]
+                if parsed.get("development_stage"):
+                    raw_data["development_stage"] = parsed["development_stage"]
+                if parsed.get("researchers_html"):
+                    raw_data["researchers_html"] = parsed["researchers_html"]
+                if parsed.get("keywords_html"):
+                    raw_data["keywords_html"] = parsed["keywords_html"]
+                # Clean HTML and formatting from text fields
+                for key in ("market_application", "benefit", "abstract", "other",
+                             "patents_html", "publications_html", "ip_text",
+                             "development_stage", "researchers_html", "keywords_html"):
+                    raw = raw_data.get(key)
+                    if not raw or not isinstance(raw, str):
+                        continue
+                    # Strip HTML tags if present
+                    if "<" in raw:
+                        soup = BeautifulSoup(raw, "html.parser")
+                        items = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
+                        if items:
+                            raw = "\n".join(items)
+                        else:
+                            raw = soup.get_text(separator="\n", strip=True)
+                    # Clean non-breaking spaces and bullet markers
+                    raw = raw.replace('\xa0', ' ').replace('&nbsp;', ' ')
+                    raw = re.sub(r'[·•]\s*', '', raw)
+                    raw = re.sub(r'[ \t]+', ' ', raw)
+                    # Clean up lines
+                    lines = [line.strip() for line in raw.split('\n')]
+                    raw_data[key] = '\n'.join(line for line in lines if line)
+
                 # Store researchers, documents, contacts, and tags
                 raw_data["researchers"] = detail.get("_members")
                 raw_data["documents"] = detail.get("_documents")
@@ -463,6 +515,9 @@ class FlintboxScraper(BaseScraper):
                 tags = detail.get("_tags")
                 if tags:
                     keywords = tags
+                # Use embedded keywords if no tags available
+                if not keywords and parsed.get("keywords_html"):
+                    keywords = [k.strip() for k in parsed["keywords_html"].split(",") if k.strip()]
                 ip_status = detail.get("ipStatus")
                 if ip_status:
                     patent_status = ip_status

@@ -18,7 +18,7 @@ Inherit from `flintbox_base.py` — fixes to base class apply automatically.
 |---|------|-----------|--------|-------|
 | 1 | `usu` | Utah State | **Approved** | Phase 3 fix: metadata filtered from `other` |
 | 2 | `uconn` | UConn | **Needs Fix** | `&nbsp;` in Market Opportunity; missing bullets in Market Application |
-| 3 | `ttu` | Texas Tech | **Needs Fix** | Section parsing works on page 1; user flagged "still needs work" |
+| 3 | `ttu` | Texas Tech | **Approved** | Fixed embedded section parsing (IP, dev stage, keywords); cleaned HTML. **Needs full re-scrape** |
 | 4 | `ucf` | Central Florida | **Approved** | |
 | 5 | `colorado` | Colorado | **Approved** | |
 | 6 | `usc` | South Carolina | **Approved** | |
@@ -84,10 +84,10 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 
 | Category | Total | Approved | Needs Fix | Unreviewed |
 |----------|-------|----------|-----------|------------|
-| Flintbox Base | 8 | 6 | 2 | 0 |
+| Flintbox Base | 8 | 7 | 1 | 0 |
 | Flintbox Standalone | 5 | 3 | 2 | 0 |
 | TechPublisher | 5 | 1 | 0 | 4 |
 | Algolia API | 6 | 2 | 0 | 4 |
 | RSS Feed | 5 | 1 | 0 | 4 |
 | Custom | 6 | 1 | 0 | 5 |
-| **Total** | **35** | **14** | **4** | **17** |
+| **Total** | **35** | **15** | **3** | **17** |
