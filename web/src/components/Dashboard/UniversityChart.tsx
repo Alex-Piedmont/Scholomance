@@ -86,7 +86,7 @@ export function UniversityChart({ data, loading }: UniversityChartProps) {
               ))}
             </Pie>
             <Tooltip
-              formatter={(value) => [Number(value).toLocaleString(), 'Technologies']}
+              formatter={(value, name) => [Number(value).toLocaleString(), name]}
             />
             <Legend
               layout="vertical"

@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom'
 import type { StatsOverview } from '../../api/types'
 
 interface OverviewCardsProps {
@@ -6,6 +7,7 @@ interface OverviewCardsProps {
 }
 
 export function OverviewCards({ stats, loading }: OverviewCardsProps) {
+  const navigate = useNavigate()
   if (loading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -36,13 +38,18 @@ export function OverviewCards({ stats, loading }: OverviewCardsProps) {
       label: 'Granted Patents',
       value: stats.granted_patents.toLocaleString(),
       color: 'text-purple-600',
+      href: '/browse?patent_status=granted',
     },
   ]
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
       {cards.map((card) => (
-        <div key={card.label} className="bg-white p-4 rounded-lg shadow">
+        <div
+          key={card.label}
+          className={`bg-white p-4 rounded-lg shadow${card.href ? ' cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+          onClick={card.href ? () => navigate(card.href!) : undefined}
+        >
           <p className="text-sm text-gray-500">{card.label}</p>
           <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
         </div>
