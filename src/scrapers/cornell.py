@@ -278,6 +278,8 @@ class CornellScraper(BaseScraper):
                 abstract_raw = detail.get("abstract")
                 parsed = _FBHelpers._parse_embedded_sections(abstract_raw)
                 raw_data["abstract"] = parsed.get("abstract")
+                if parsed.get("background"):
+                    raw_data["background"] = parsed["background"]
                 if parsed.get("market_application") and not detail.get("marketApplication"):
                     raw_data["market_application"] = parsed["market_application"]
                 else:
@@ -292,6 +294,44 @@ class CornellScraper(BaseScraper):
                     raw_data["patents_html"] = parsed["patents"]
                 if parsed.get("publications_html"):
                     raw_data["publications_html"] = parsed["publications_html"]
+                    if not raw_data.get("publications"):
+                        raw_data["publications"] = parsed["publications_html"]
+                if parsed.get("ip_text"):
+                    raw_data["ip_text"] = parsed["ip_text"]
+                if parsed.get("development_stage"):
+                    raw_data["development_stage"] = parsed["development_stage"]
+                if parsed.get("researchers_html"):
+                    raw_data["researchers_html"] = parsed["researchers_html"]
+                if parsed.get("keywords_html"):
+                    raw_data["keywords_html"] = parsed["keywords_html"]
+
+                # Clean HTML from text fields
+                for key in ("market_application", "benefit", "abstract", "background", "other",
+                             "patents_html", "publications_html", "ip_text",
+                             "development_stage", "researchers_html", "keywords_html"):
+                    raw = raw_data.get(key)
+                    if not raw or not isinstance(raw, str) or "<" not in raw:
+                        continue
+                    from bs4 import BeautifulSoup as BS
+                    soup = BS(raw, "html.parser")
+                    items = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
+                    if items:
+                        raw = "\n".join(items)
+                    else:
+                        raw = soup.get_text(separator="\n", strip=True)
+                    raw = raw.replace('\xa0', ' ').replace('&nbsp;', ' ')
+                    raw = re.sub(r'[·•]\s*', '', raw)
+                    raw = re.sub(r'[ \t]+', ' ', raw)
+                    lines = [line.strip() for line in raw.split('\n')]
+                    raw_data[key] = '\n'.join(line for line in lines if line)
+
+                # Use embedded keywords if no tags
+                if parsed.get("keywords_html") and not detail.get("_tags"):
+                    kw_text = raw_data.get("keywords_html", "")
+                    keywords_from_embed = [k.strip() for k in kw_text.split(",") if k.strip()]
+                    if keywords_from_embed:
+                        raw_data["_embedded_keywords"] = keywords_from_embed
+
                 # Store researchers, documents, contacts, and tags
                 raw_data["researchers"] = detail.get("_members")
                 raw_data["documents"] = detail.get("_documents")
@@ -310,6 +350,8 @@ class CornellScraper(BaseScraper):
                 tags = detail.get("_tags")
                 if tags:
                     keywords = tags
+                if not keywords and raw_data.get("_embedded_keywords"):
+                    keywords = raw_data["_embedded_keywords"]
                 ip_status = detail.get("ipStatus")
                 if ip_status:
                     patent_status = ip_status

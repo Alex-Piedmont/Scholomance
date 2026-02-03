@@ -32,7 +32,7 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 |---|------|-----------|--------|-------|
 | 9 | `gatech` | Georgia Tech | **Approved** | |
 | 10 | `cmu` | Carnegie Mellon | **Needs Fix** | User asked about "Granted" — confirmed correct `ipStatus` data; needs user re-check |
-| 11 | `cornell` | Cornell | **Needs Fix** | Section parsing added for Cornell headers; needs user re-verification |
+| 11 | `cornell` | **Approved** | Separated Background/Technology Overview; added Publications, Patents/IP, dev stage parsing; HTML cleaning. **Needs full re-scrape** |
 | 12 | `uiuc` | UIUC | **Approved** | |
 | 13 | `uga` | UGA | **Approved** | |
 
@@ -85,9 +85,9 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 | Category | Total | Approved | Needs Fix | Unreviewed |
 |----------|-------|----------|-----------|------------|
 | Flintbox Base | 8 | 7 | 1 | 0 |
-| Flintbox Standalone | 5 | 3 | 2 | 0 |
+| Flintbox Standalone | 5 | 4 | 1 | 0 |
 | TechPublisher | 5 | 1 | 0 | 4 |
 | Algolia API | 6 | 2 | 0 | 4 |
 | RSS Feed | 5 | 1 | 0 | 4 |
 | Custom | 6 | 1 | 0 | 5 |
-| **Total** | **35** | **15** | **3** | **17** |
+| **Total** | **35** | **16** | **2** | **17** |

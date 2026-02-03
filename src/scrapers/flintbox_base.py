@@ -216,7 +216,7 @@ class FlintboxScraper(BaseScraper):
 
         # Split on section headers that may be wrapped in HTML tags like
         # <p><strong>Market Applications:</strong></p> or <p>Market Applications:</p>
-        tag = r"(?:</?(?:p|strong|b|br|em|ul|li|h[1-6])\s*/?>[\s\n]*)*"
+        tag = r"(?:</?(?:p|strong|b|br|em|h[1-6])\s*/?>[\s\n]*)*"
         section_re = re.compile(
             tag
             + r"(?:"
@@ -230,7 +230,7 @@ class FlintboxScraper(BaseScraper):
             + r"|(?P<background>Background\s*(?:&amp;|&)\s*Unmet\s+Need\s*:?\s*)"
             + r"|(?P<overview>Technology\s+Overview\s*:?\s*)"
             + r"|(?P<ip>Intellectual\s+Property\s*:?\s*)"
-            + r"|(?P<patents>Patents?\s*:\s*)"
+            + r"|(?P<patents>(?<=\>)Patents?\s*:?\s*)"
             + r"|(?P<pubs>Publications?\s*:?\s*)"
             + r"|(?P<dev>Development(?:al)?\s+Stage\s*:?\s*)"
             + r"|(?P<researcher>Researchers?\s*\(?\s*s?\s*\)?\s*:?\s*)"
@@ -271,18 +271,18 @@ class FlintboxScraper(BaseScraper):
             if name == "abstract":
                 result.setdefault("abstract", content)
             elif name == "background":
-                result.setdefault("abstract", content)
+                result["background"] = content
             elif name == "overview":
-                if "abstract" in result:
-                    result["abstract"] += " " + content
-                else:
-                    result["abstract"] = content
+                result["abstract"] = content
             elif name == "market":
                 result["market_application"] = content
             elif name == "benefit":
                 result["benefit"] = content
             elif name == "patents":
                 result["patents"] = content
+                # Also extract as ip_text if no separate IP section
+                if "ip_text" not in result:
+                    result["ip_text"] = content
             elif name == "pubs":
                 result["publications_html"] = content
             elif name == "refnum":
@@ -297,8 +297,8 @@ class FlintboxScraper(BaseScraper):
                 result["keywords_html"] = content
 
         # Clean HTML from list-style fields: extract text items from <li> tags
-        for key in ("market_application", "benefit", "ip_text", "development_stage",
-                     "publications_html", "researchers_html", "keywords_html"):
+        for key in ("market_application", "benefit", "background", "ip_text", "development_stage",
+                     "researchers_html", "keywords_html"):
             raw = result.get(key)
             if not raw:
                 continue
@@ -308,6 +308,8 @@ class FlintboxScraper(BaseScraper):
                 result[key] = "\n".join(items)
             else:
                 result[key] = soup.get_text(separator=" ", strip=True)
+            # Clean non-breaking spaces
+            result[key] = result[key].replace('\xa0', ' ').replace('&nbsp;', ' ')
 
         return result
 
@@ -451,6 +453,8 @@ class FlintboxScraper(BaseScraper):
                 abstract_raw = detail.get("abstract")
                 parsed = self._parse_embedded_sections(abstract_raw)
                 raw_data["abstract"] = parsed.get("abstract")
+                if parsed.get("background"):
+                    raw_data["background"] = parsed["background"]
                 # Only override if detail didn't already provide these fields
                 if parsed.get("market_application") and not detail.get("marketApplication"):
                     raw_data["market_application"] = parsed["market_application"]
@@ -466,6 +470,8 @@ class FlintboxScraper(BaseScraper):
                     raw_data["patents_html"] = parsed["patents"]
                 if parsed.get("publications_html"):
                     raw_data["publications_html"] = parsed["publications_html"]
+                    if not raw_data.get("publications"):
+                        raw_data["publications"] = parsed["publications_html"]
                 if parsed.get("ip_text"):
                     raw_data["ip_text"] = parsed["ip_text"]
                 if parsed.get("development_stage"):
@@ -475,7 +481,7 @@ class FlintboxScraper(BaseScraper):
                 if parsed.get("keywords_html"):
                     raw_data["keywords_html"] = parsed["keywords_html"]
                 # Clean HTML and formatting from text fields
-                for key in ("market_application", "benefit", "abstract", "other",
+                for key in ("market_application", "benefit", "abstract", "background", "other",
                              "patents_html", "publications_html", "ip_text",
                              "development_stage", "researchers_html", "keywords_html"):
                     raw = raw_data.get(key)
