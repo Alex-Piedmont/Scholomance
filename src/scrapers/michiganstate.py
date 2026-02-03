@@ -28,16 +28,17 @@ class MichiganStateScraper(RSSBaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
-                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
+                    # Prefer structured full_description from detail page
+                    if detail.get("full_description"):
                         tech.description = detail["full_description"]
                     # Clean non-breaking spaces and HTML entities
                     if tech.description:
                         tech.description = tech.description.replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
-                    if detail.get("categories"):
+                    if detail.get("keywords"):
+                        tech.keywords = detail["keywords"]
+                    elif detail.get("categories"):
                         tech.keywords = detail["categories"]
                     if detail.get("patent_status"):
                         tech.patent_status = detail["patent_status"]
@@ -124,42 +125,94 @@ class MichiganStateScraper(RSSBaseScraper):
             if pub_match:
                 detail["web_published"] = pub_match.group(1).strip()
 
-            # Main description
-            desc_div = soup.select_one(".c_content, .description, .product-description-box")
+            # Parse structured sections from the description div
+            desc_div = soup.select_one(".c_tp_description, .c_content, .description, .product-description-box")
             if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+                # Walk child elements, grouping by heading paragraphs
+                section_names = {
+                    "executive summary", "description of technology", "description",
+                    "benefits to manufacturers", "benefits to consumers", "benefits",
+                    "advantages", "applications", "why this matters",
+                    "market opportunity", "patent status", "patent status & licensing",
+                    "publications", "inventors", "tech id", "key words",
+                    "development stage", "stage of development",
+                }
+                current_heading = None
+                current_parts: list[str] = []
+                sections: list[tuple[str | None, list[str]]] = []
 
-            # Parse sections
-            for heading in soup.find_all(["h2", "h3", "strong"]):
-                htxt = heading.get_text(strip=True).lower()
-                items = []
-                nxt = heading.find_next_sibling()
-                if not nxt and heading.parent:
-                    nxt = heading.parent.find_next_sibling()
-                while nxt:
-                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
-                        break
-                    if nxt.name == "ul":
-                        for li in nxt.find_all("li"):
+                for child in desc_div.children:
+                    if not hasattr(child, "name") or not child.name:
+                        continue
+                    txt = child.get_text(strip=True)
+                    if not txt:
+                        continue
+
+                    # Detect heading: a <p> whose text matches a known section name
+                    is_heading = False
+                    if child.name == "p" and txt.lower().rstrip(":") in section_names:
+                        is_heading = True
+
+                    if is_heading:
+                        if current_parts:
+                            sections.append((current_heading, current_parts))
+                        current_heading = txt.rstrip(":")
+                        current_parts = []
+                    elif child.name == "ul":
+                        for li in child.find_all("li"):
                             t = li.get_text(strip=True)
                             if t:
-                                items.append(t)
-                    elif nxt.name == "p" and nxt.get_text(strip=True):
-                        items.append(nxt.get_text(strip=True))
-                    nxt = nxt.find_next_sibling()
-                if not items:
-                    continue
-                if "executive summary" in htxt or "description" in htxt:
-                    if "full_description" not in detail:
-                        detail["full_description"] = "\n".join(items)
-                elif "benefit" in htxt or "advantage" in htxt:
-                    detail["advantages"] = items
-                elif "application" in htxt:
-                    detail["applications"] = items
-                elif "development" in htxt or "stage" in htxt:
-                    detail["development_stage"] = " ".join(items)
-                elif "patent" in htxt and "status" in htxt:
-                    detail["patent_info"] = " ".join(items)
+                                current_parts.append(t)
+                    elif child.name == "p":
+                        current_parts.append(txt)
+
+                if current_parts:
+                    sections.append((current_heading, current_parts))
+
+                # Map sections to standard raw_data field names
+                benefit_parts: list[str] = []
+                for heading, parts in sections:
+                    if heading is None:
+                        continue
+                    h_lower = heading.lower()
+                    text = "\n\n".join(parts)
+
+                    if "executive summary" in h_lower:
+                        detail["subtitle"] = "Executive Summary"
+                        detail["full_description"] = text
+                    elif "description" in h_lower:
+                        if "full_description" not in detail:
+                            detail["full_description"] = text
+                    elif "benefit" in h_lower or "advantage" in h_lower:
+                        benefit_parts.extend(parts)
+                    elif "application" in h_lower:
+                        detail["applications"] = parts
+                    elif "why this matters" in h_lower or "market" in h_lower:
+                        detail["market_opportunity"] = text
+                    elif "patent" in h_lower:
+                        detail["ip_status"] = text
+                    elif "publication" in h_lower:
+                        detail["publications"] = text
+                    elif "development" in h_lower or "stage" in h_lower:
+                        detail["development_stage"] = text
+                    elif "inventor" in h_lower:
+                        # Parse inventor names from list items or text
+                        names = []
+                        for p in parts:
+                            for name in re.split(r"[,;]", p):
+                                name = name.strip()
+                                if name:
+                                    names.append(name)
+                        if names:
+                            detail["inventors"] = names
+                    elif "key words" in h_lower or "keywords" in h_lower:
+                        detail["keywords"] = parts
+                    elif "tech id" in h_lower:
+                        if parts:
+                            detail["technology_number"] = parts[0]
+
+                if benefit_parts:
+                    detail["advantages"] = benefit_parts
 
             # Inventors
             inventors = []

@@ -62,7 +62,7 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 | # | Code | University | Status | Notes |
 |---|------|-----------|--------|-------|
 | 25 | `princeton` | Princeton | Unreviewed | |
-| 26 | `michiganstate` | Michigan State | Unreviewed | |
+| 26 | `michiganstate` | Michigan State | **Approved** | Rewrote detail parser for structured sections; cleaned &nbsp;; added keywords from page. **Needs full re-scrape** (only 15/340 updated) |
 | 27 | `texasstate` | Texas State | Unreviewed | |
 | 28 | `upenn` | Penn | Unreviewed | |
 | 29 | `utaustin` | UT Austin | Unreviewed | |
@@ -73,7 +73,7 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 |---|------|-----------|--------|-------|
 | 30 | `ucsystem` | UC System | Unreviewed | Sitemap-based, centralized portal |
 | 31 | `mit` | MIT | Unreviewed | Custom HTML scraper with patent extraction |
-| 32 | `columbia` | **Approved** | Sitemap-based; added detail page fetching + structured section parsing |
+| 32 | `columbia` | **Approved** | Sitemap-based; added detail page fetching + structured section parsing. **Needs full re-scrape** (only 15/1211 updated so far) |
 | 33 | `stanford` | Stanford | Unreviewed | Playwright-based |
 | 34 | `duke` | Duke | Unreviewed | Playwright-based with anti-bot measures |
 | 35 | `harvard` | Harvard | Unreviewed | Category-based |
@@ -88,6 +88,6 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 | Flintbox Standalone | 5 | 3 | 2 | 0 |
 | TechPublisher | 5 | 1 | 0 | 4 |
 | Algolia API | 6 | 2 | 0 | 4 |
-| RSS Feed | 5 | 0 | 0 | 5 |
+| RSS Feed | 5 | 1 | 0 | 4 |
 | Custom | 6 | 1 | 0 | 5 |
-| **Total** | **35** | **13** | **4** | **18** |
+| **Total** | **35** | **14** | **4** | **17** |
