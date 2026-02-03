@@ -5,6 +5,7 @@ import type {
   FieldCount,
   UniversityCount,
   TimelinePoint,
+  KeywordCount,
 } from '../api/types'
 
 interface UseStatsResult<T> {
@@ -99,6 +100,31 @@ export function useStatsTimeline(): UseStatsResult<TimelinePoint[]> {
     setError(null)
     try {
       const result = await statsApi.getTimeline()
+      setData(result)
+    } catch (e) {
+      setError(e instanceof Error ? e : new Error('Unknown error'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetch()
+  }, [])
+
+  return { data, loading, error, refetch: fetch }
+}
+
+export function useStatsKeywords(): UseStatsResult<KeywordCount[]> {
+  const [data, setData] = useState<KeywordCount[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
+
+  const fetch = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await statsApi.getKeywords()
       setData(result)
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Unknown error'))

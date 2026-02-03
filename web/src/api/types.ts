@@ -3,8 +3,7 @@ export interface StatsOverview {
   total_technologies: number
   total_universities: number
   total_fields: number
-  classified_count: number
-  pending_count: number
+  granted_patents: number
   last_scrape: string | null
 }
 
@@ -27,6 +26,11 @@ export interface UniversityCount {
 
 export interface TimelinePoint {
   month: string
+  count: number
+}
+
+export interface KeywordCount {
+  keyword: string
   count: number
 }
 

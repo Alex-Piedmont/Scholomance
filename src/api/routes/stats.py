@@ -10,6 +10,7 @@ from ..schemas import (
     SubfieldCount,
     UniversityCount,
     TimelinePoint,
+    KeywordCount,
 )
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -29,12 +30,8 @@ def get_overview():
             func.count(func.distinct(Technology.top_field))
         ).filter(Technology.top_field.isnot(None)).scalar() or 0
 
-        classified = session.query(func.count(Technology.id)).filter(
-            Technology.classification_status == "completed"
-        ).scalar() or 0
-
-        pending = session.query(func.count(Technology.id)).filter(
-            Technology.classification_status == "pending"
+        granted_patents = session.query(func.count(Technology.id)).filter(
+            Technology.patent_status == "granted"
         ).scalar() or 0
 
         last_scrape = session.query(func.max(ScrapeLog.completed_at)).scalar()
@@ -43,8 +40,7 @@ def get_overview():
             total_technologies=total,
             total_universities=universities,
             total_fields=fields,
-            classified_count=classified,
-            pending_count=pending,
+            granted_patents=granted_patents,
             last_scrape=last_scrape,
         )
 
@@ -130,6 +126,27 @@ def get_by_university():
             )
             for uni, count in counts
         ]
+
+
+@router.get("/keywords", response_model=list[KeywordCount])
+def get_keywords():
+    """Get keyword counts across all technologies."""
+    with db.get_session() as session:
+        keyword = func.unnest(Technology.keywords).label("keyword")
+        EXCLUDED = {"available technologies"}
+        counts = (
+            session.query(keyword, func.count().label("count"))
+            .filter(Technology.keywords.isnot(None))
+            .group_by("keyword")
+            .order_by(func.count().desc())
+            .limit(120)
+            .all()
+        )
+        return [
+            KeywordCount(keyword=kw, count=c)
+            for kw, c in counts
+            if kw.lower() not in EXCLUDED
+        ][:100]
 
 
 @router.get("/timeline", response_model=list[TimelinePoint])

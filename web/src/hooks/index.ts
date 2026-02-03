@@ -3,6 +3,7 @@ export {
   useStatsByField,
   useStatsByUniversity,
   useStatsTimeline,
+  useStatsKeywords,
 } from './useStats'
 
 export { useTechnologies, useTaxonomy } from './useTechnologies'

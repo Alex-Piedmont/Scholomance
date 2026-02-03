@@ -29,12 +29,16 @@ class TimelinePoint(BaseModel):
     count: int
 
 
+class KeywordCount(BaseModel):
+    keyword: str
+    count: int
+
+
 class StatsOverview(BaseModel):
     total_technologies: int
     total_universities: int
     total_fields: int
-    classified_count: int
-    pending_count: int
+    granted_patents: int
     last_scrape: Optional[datetime] = None
 
 

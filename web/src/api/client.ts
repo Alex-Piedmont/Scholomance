@@ -3,6 +3,7 @@ import type {
   FieldCount,
   UniversityCount,
   TimelinePoint,
+  KeywordCount,
   PaginatedTechnologies,
   TechnologyDetail,
   TaxonomyField,
@@ -59,6 +60,7 @@ export const statsApi = {
   getByUniversity: () => fetchJson<UniversityCount[]>('/stats/by-university'),
 
   getTimeline: () => fetchJson<TimelinePoint[]>('/stats/timeline'),
+  getKeywords: () => fetchJson<KeywordCount[]>('/stats/keywords'),
 }
 
 // Technologies API
