@@ -1,7 +1,7 @@
 """Statistics API endpoints."""
 
 from fastapi import APIRouter
-from sqlalchemy import func, extract
+from sqlalchemy import cast, func, extract, Date
 
 from ...database import db, Technology, ScrapeLog
 from ..schemas import (
@@ -134,16 +134,20 @@ def get_by_university():
 
 @router.get("/timeline", response_model=list[TimelinePoint])
 def get_timeline():
-    """Get technology counts by month (based on first_seen)."""
+    """Get technology counts by month (based on published date)."""
     with db.get_session() as session:
-        # Group by year-month of first_seen
+        # Use published_on or web_published from raw_data; exclude records without a published date
+        pub_date = func.coalesce(
+            cast(Technology.raw_data['published_on'].astext, Date),
+            cast(Technology.raw_data['web_published'].astext, Date),
+        )
         timeline = (
             session.query(
-                extract("year", Technology.first_seen).label("year"),
-                extract("month", Technology.first_seen).label("month"),
+                extract("year", pub_date).label("year"),
+                extract("month", pub_date).label("month"),
                 func.count(Technology.id).label("count")
             )
-            .filter(Technology.first_seen.isnot(None))
+            .filter(pub_date.isnot(None))
             .group_by("year", "month")
             .order_by("year", "month")
             .all()
