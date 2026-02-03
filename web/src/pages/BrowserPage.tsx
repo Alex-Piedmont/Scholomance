@@ -14,8 +14,6 @@ export function BrowserPage() {
     page: parseInt(searchParams.get('page') || '1', 10),
     limit: parseInt(searchParams.get('limit') || '20', 10),
     q: searchParams.get('q') || undefined,
-    top_field: searchParams.get('top_field') || undefined,
-    subfield: searchParams.get('subfield') || undefined,
     university: searchParams.getAll('university').length > 0 ? searchParams.getAll('university') : undefined,
     patent_status: searchParams.get('patent_status') || undefined,
     from_date: searchParams.get('from_date') || undefined,
@@ -36,8 +34,6 @@ export function BrowserPage() {
         params.set('limit', String(newFilters.limit))
       }
       if (newFilters.q) params.set('q', newFilters.q)
-      if (newFilters.top_field) params.set('top_field', newFilters.top_field)
-      if (newFilters.subfield) params.set('subfield', newFilters.subfield)
       if (newFilters.university) {
         for (const uni of newFilters.university) {
           params.append('university', uni)
@@ -69,7 +65,7 @@ export function BrowserPage() {
     setFilters({ ...filters, limit: newLimit, page: 1 })
   }
 
-  const hasActiveFilters = filters.q || filters.top_field || filters.subfield || (filters.university && filters.university.length > 0) || filters.patent_status
+  const hasActiveFilters = filters.q || (filters.university && filters.university.length > 0) || filters.patent_status
 
   if (error) {
     return (
@@ -101,8 +97,6 @@ export function BrowserPage() {
               label: "Clear Filters",
               onClick: () => handleFilterChange({
                 q: undefined,
-                top_field: undefined,
-                subfield: undefined,
                 university: undefined,
                 patent_status: undefined,
               })

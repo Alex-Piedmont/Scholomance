@@ -2,9 +2,12 @@ import { useNavigate } from 'react-router-dom'
 import {
   useReactTable,
   getCoreRowModel,
+  getSortedRowModel,
   flexRender,
   createColumnHelper,
+  type SortingState,
 } from '@tanstack/react-table'
+import { useState } from 'react'
 import type { TechnologySummary } from '../../api/types'
 
 interface TechnologyTableProps {
@@ -17,6 +20,7 @@ const columnHelper = createColumnHelper<TechnologySummary>()
 const columns = [
   columnHelper.accessor('title', {
     header: 'Title',
+    enableSorting: true,
     cell: (info) => {
       const title = info.getValue()
       return (
@@ -28,12 +32,19 @@ const columns = [
   }),
   columnHelper.accessor('university', {
     header: 'University',
+    enableSorting: true,
     cell: (info) => (
       <span className="text-gray-600">{info.getValue()}</span>
     ),
   }),
   columnHelper.accessor('published_on', {
     header: 'First Published',
+    enableSorting: true,
+    sortingFn: (rowA, rowB) => {
+      const a = rowA.original.published_on || rowA.original.first_seen || ''
+      const b = rowB.original.published_on || rowB.original.first_seen || ''
+      return a.localeCompare(b)
+    },
     cell: (info) => {
       const value = info.getValue() || info.row.original.first_seen
       if (!value) return <span className="text-gray-400">-</span>
@@ -49,11 +60,15 @@ const columns = [
 
 export function TechnologyTable({ data, loading }: TechnologyTableProps) {
   const navigate = useNavigate()
+  const [sorting, setSorting] = useState<SortingState>([])
 
   const table = useReactTable({
     data,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   })
 
   if (loading) {
@@ -79,14 +94,20 @@ export function TechnologyTable({ data, loading }: TechnologyTableProps) {
               {headerGroup.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="px-4 py-3 text-left text-sm font-medium text-gray-500"
+                  className={`px-4 py-3 text-left text-sm font-medium text-gray-500 ${
+                    header.column.getCanSort() ? 'cursor-pointer select-none hover:text-gray-700' : ''
+                  }`}
+                  onClick={header.column.getToggleSortingHandler()}
                 >
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )}
+                  <span className="inline-flex items-center gap-1">
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                    {{ asc: ' ↑', desc: ' ↓' }[header.column.getIsSorted() as string] ?? ''}
+                  </span>
                 </th>
               ))}
             </tr>
