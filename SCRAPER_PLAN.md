@@ -44,7 +44,7 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 | 15 | `uw` | Washington | **Approved** |
 | 16 | `minnesota` | Minnesota | **Approved** |
 | 17 | `purdue` | Purdue | **Approved** |
-| 18 | `umich` | Michigan | Unreviewed |
+| 18 | `umich` | Michigan | **Approved** |
 
 ## Algolia API Scrapers
 
@@ -86,11 +86,11 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 |----------|-------|----------|-----------|------------|
 | Flintbox Base | 8 | 7 | 1 | 0 |
 | Flintbox Standalone | 5 | 4 | 1 | 0 |
-| TechPublisher | 5 | 4 | 0 | 1 |
+| TechPublisher | 5 | 5 | 0 | 0 |
 | Algolia API | 6 | 2 | 0 | 4 |
 | RSS Feed | 5 | 1 | 0 | 4 |
 | Custom | 6 | 1 | 0 | 5 |
-| **Total** | **35** | **19** | **2** | **14** |
+| **Total** | **35** | **20** | **2** | **13** |
 
 ---
 

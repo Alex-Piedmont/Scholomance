@@ -49,8 +49,10 @@ class UMichScraper(BaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
+                    if detail.get("abstract"):
+                        tech.description = detail["abstract"]
+                    elif detail.get("subtitle"):
+                        tech.description = detail["subtitle"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):
@@ -172,56 +174,58 @@ class UMichScraper(BaseScraper):
                 if "TECHNOLOGY NUMBER:" in content:
                     detail["technology_number"] = content.replace("TECHNOLOGY NUMBER:", "").strip()
 
-            # Description from product-description-box or description div
-            desc_box = soup.select_one(".product-description-box, .description, .c_content")
-            if desc_box:
-                detail["full_description"] = desc_box.get_text(separator="\n", strip=True)
-            else:
-                h1 = soup.find("h1")
-                if h1:
-                    parts = []
-                    for sib in h1.find_next_siblings():
-                        if sib.name in ("h2", "h3", "h4", "strong") and any(
-                            kw in sib.get_text().lower()
-                            for kw in ["benefit", "feature", "application", "advantage",
-                                        "author", "inventor", "problem", "solution"]
-                        ):
-                            break
-                        if sib.name in ("p", "div") and sib.get_text(strip=True):
-                            parts.append(sib.get_text(strip=True))
-                    if parts:
-                        detail["full_description"] = "\n".join(parts)
+            # Parse the description div for structured sections
+            # UMich pages have malformed HTML with h2 tags nested inside <p> tags,
+            # so we walk all descendants and segment by h2 headings.
+            desc_div = soup.select_one(".description.grey-text")
+            if desc_div:
+                from bs4 import NavigableString
+                sections: list[tuple[str | None, list[str]]] = []
+                current_heading = None
+                current_parts: list[str] = []
 
-            # Structured sections
-            for heading in soup.find_all(["h2", "h3", "strong"]):
-                htxt = heading.get_text(strip=True).lower()
-                items = []
-                nxt = heading.find_next_sibling()
-                while nxt:
-                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
-                        break
-                    if nxt.name == "ul":
-                        for li in nxt.find_all("li"):
-                            t = li.get_text(strip=True)
-                            if t:
-                                items.append(t)
-                    elif nxt.name == "p" and nxt.get_text(strip=True):
-                        items.append(nxt.get_text(strip=True))
-                    nxt = nxt.find_next_sibling()
-                if not items:
-                    continue
-                if "problem" in htxt:
-                    detail["problem"] = " ".join(items)
-                elif "solution" in htxt:
-                    detail["solution"] = " ".join(items)
-                elif "competitive" in htxt or "advantage" in htxt or "benefit" in htxt:
-                    detail["advantages"] = items
-                elif "application" in htxt:
-                    detail["applications"] = items
-                elif "background" in htxt:
-                    detail["background"] = "\n".join(items)
-                elif "development" in htxt or "stage" in htxt:
-                    detail["development_stage"] = " ".join(items)
+                for el in desc_div.descendants:
+                    if hasattr(el, "name") and el.name == "h2":
+                        if current_heading is not None or current_parts:
+                            sections.append((current_heading, current_parts))
+                        current_heading = el.get_text(strip=True)
+                        current_parts = []
+                    elif isinstance(el, NavigableString):
+                        t = el.strip()
+                        if t and not (hasattr(el.parent, "name") and el.parent.name == "h2"):
+                            current_parts.append(t)
+
+                if current_heading is not None or current_parts:
+                    sections.append((current_heading, current_parts))
+
+                # Map sections to standard field names
+                for heading, parts in sections:
+                    if heading is None:
+                        continue
+                    h_lower = heading.lower()
+                    text = " ".join(parts)
+
+                    if "overview" in h_lower:
+                        detail["subtitle"] = "\n\n".join(parts)
+                    elif "background" in h_lower:
+                        detail["background"] = text
+                    elif "innovation" in h_lower or "solution" in h_lower:
+                        detail["abstract"] = text
+                    elif "problem" in h_lower:
+                        if not detail.get("background"):
+                            detail["background"] = text
+                    elif "benefit" in h_lower or "feature" in h_lower or "advantage" in h_lower or "competitive" in h_lower:
+                        detail["advantages"] = parts
+                    elif h_lower in ("application", "applications") or ("application" in h_lower and "patent" not in h_lower):
+                        detail["applications"] = parts
+                    elif "intellectual property" in h_lower or "patent" in h_lower:
+                        detail["ip_status"] = text
+                    elif "publication" in h_lower:
+                        detail["publications"] = text
+                    elif "development" in h_lower or "stage" in h_lower or "phase" in h_lower:
+                        detail["development_stage"] = text
+                    elif "indication" in h_lower:
+                        detail["market_application"] = text
 
             # Collapsible sections (Authors, References, Documents)
             for coll in soup.select(".collapsible-header"):
@@ -231,10 +235,19 @@ class UMichScraper(BaseScraper):
                     continue
                 if "author" in htxt or "inventor" in htxt:
                     inventors = []
-                    for el in body.select("a, span"):
-                        n = el.get_text(strip=True)
+                    for div in body.find_all("div", recursive=False):
+                        inner = div.find("div")
+                        if inner:
+                            n = inner.get_text(strip=True)
+                        else:
+                            n = div.get_text(strip=True)
                         if n and len(n) > 2 and n not in inventors:
                             inventors.append(n)
+                    if not inventors:
+                        for el in body.select("a, span"):
+                            n = el.get_text(strip=True)
+                            if n and len(n) > 2 and n not in inventors:
+                                inventors.append(n)
                     if not inventors:
                         inventors = [n.strip() for n in body.get_text().split(",") if len(n.strip()) > 2]
                     if inventors:
