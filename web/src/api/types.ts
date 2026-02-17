@@ -100,3 +100,59 @@ export interface TechnologyFilters {
   from_date?: string
   to_date?: string
 }
+
+// Assessment types
+export interface CategoryAssessment {
+  score: number | null
+  confidence: number | null
+  reasoning: string | null
+  details: Record<string, unknown> | null
+}
+
+export interface OpportunitySummary {
+  uuid: string
+  title: string
+  university: string
+  top_field: string | null
+  subfield: string | null
+  patent_status: string | null
+  composite_score: number | null
+  assessment_tier: string | null
+  trl_gap: CategoryAssessment | null
+  false_barrier: CategoryAssessment | null
+  alt_application: CategoryAssessment | null
+  assessed_at: string | null
+}
+
+export interface PaginatedOpportunities {
+  items: OpportunitySummary[]
+  total: number
+  page: number
+  pages: number
+  limit: number
+}
+
+export interface OpportunityStats {
+  total_assessed: number
+  total_full: number
+  total_limited: number
+  avg_composite_score: number | null
+  high_trl_gap_count: number
+  high_false_barrier_count: number
+  high_alt_application_count: number
+}
+
+export interface OpportunityFilters {
+  page?: number
+  limit?: number
+  q?: string
+  category?: 'trl_gap' | 'false_barrier' | 'alt_application'
+  min_score?: number
+  min_confidence?: number
+  top_field?: string
+  subfield?: string
+  university?: string[]
+  patent_status?: string
+  assessment_tier?: 'full' | 'limited'
+  sort?: 'composite' | 'trl_gap' | 'false_barrier' | 'alt_application'
+}

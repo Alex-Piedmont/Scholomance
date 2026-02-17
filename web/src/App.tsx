@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { DashboardPage, BrowserPage, DetailPage } from './pages'
+import { DashboardPage, BrowserPage, DetailPage, OpportunitiesPage } from './pages'
 
 function App() {
   return (
@@ -9,6 +9,7 @@ function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/browse" element={<BrowserPage />} />
+          <Route path="/opportunities" element={<OpportunitiesPage />} />
           <Route path="/technology/:uuid" element={<DetailPage />} />
         </Route>
       </Routes>

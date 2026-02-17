@@ -18,6 +18,7 @@ from .scrapers import SCRAPERS, get_scraper
 from .classifier import Classifier, ClassificationResult, ClassificationError
 from .taxonomy import get_top_fields, get_subfields
 from .patent_detector import patent_detector, PatentStatus
+from .assessor import Assessor, AssessmentResult, AssessmentError, determine_assessment_tier
 
 # Configure console for rich output
 console = Console()
@@ -1023,6 +1024,291 @@ def serve(host: str, port: int, reload: bool) -> None:
         port=port,
         reload=reload,
     )
+
+
+
+
+def _build_assessment_data(result: AssessmentResult) -> dict:
+    """Convert an AssessmentResult into a dict suitable for store_assessment."""
+    data = {
+        "model": result.model,
+        "assessment_tier": result.assessment_tier,
+        "composite_score": result.composite_score,
+        "prompt_tokens": result.prompt_tokens,
+        "completion_tokens": result.completion_tokens,
+        "total_cost": result.total_cost,
+        "raw_response": result.raw_response,
+    }
+    if result.trl_gap:
+        data["trl_gap_score"] = result.trl_gap.score
+        data["trl_gap_confidence"] = result.trl_gap.confidence
+        data["trl_gap_reasoning"] = result.trl_gap.reasoning
+        data["trl_gap_details"] = result.trl_gap.details
+    if result.false_barrier:
+        data["false_barrier_score"] = result.false_barrier.score
+        data["false_barrier_confidence"] = result.false_barrier.confidence
+        data["false_barrier_reasoning"] = result.false_barrier.reasoning
+        data["false_barrier_details"] = result.false_barrier.details
+    if result.alt_application:
+        data["alt_application_score"] = result.alt_application.score
+        data["alt_application_confidence"] = result.alt_application.confidence
+        data["alt_application_reasoning"] = result.alt_application.reasoning
+        data["alt_application_details"] = result.alt_application.details
+    return data
+
+
+@main.command()
+@click.option("--batch", "-b", type=int, default=None, help="Number of technologies to assess")
+@click.option("--university", "-u", type=str, default=None, help="Only assess technologies from this university")
+@click.option("--uuid", type=str, default=None, help="Assess a single technology by UUID")
+@click.option("--force", is_flag=True, help="Re-assess already assessed technologies")
+@click.option("--model", type=str, default=None, help="Override assessment model (default: claude-3-5-haiku)")
+@click.option("--dry-run", is_flag=True, help="Show what would be assessed without making API calls")
+@click.option("--max-concurrent", type=int, default=3, help="Maximum concurrent assessments")
+@click.pass_context
+def assess(
+    ctx: click.Context,
+    batch: Optional[int],
+    university: Optional[str],
+    uuid: Optional[str],
+    force: bool,
+    model: Optional[str],
+    dry_run: bool,
+    max_concurrent: int,
+) -> None:
+    """Assess technology opportunities using Claude API.
+
+    Runs LLM-based opportunity assessment on technologies, evaluating TRL gaps,
+    false barriers, and alternative applications.
+
+    Examples:
+        tech-scraper assess --batch 100
+        tech-scraper assess --university stanford
+        tech-scraper assess --uuid <uuid>
+        tech-scraper assess --force --university stanford
+        tech-scraper assess --model claude-3-5-sonnet-20241022
+        tech-scraper assess --dry-run
+    """
+    # --- Handle --uuid: assess a single technology ---
+    if uuid:
+        # Fetch technology by UUID
+        with db.get_session() as session:
+            tech = session.query(Technology).filter(Technology.uuid == uuid).first()
+            if not tech:
+                console.print(f"[red]Technology with UUID {uuid} not found.[/red]")
+                raise SystemExit(1)
+            # Eagerly load attributes before leaving session
+            tech_id = tech.id
+            tech_title = tech.title
+            tech_description = tech.description
+            tech_raw_data = tech.raw_data
+            tech_university = tech.university
+
+        tier = determine_assessment_tier(tech_title, tech_description, tech_raw_data)
+        console.print(f"\n[bold blue]Assessing:[/bold blue] {tech_title}")
+        console.print(f"[dim]University:[/dim] {tech_university}")
+        console.print(f"[dim]Assessment tier:[/dim] {tier}")
+
+        if tier == "skipped":
+            console.print("[yellow]Skipped - insufficient data for assessment.[/yellow]")
+            return
+
+        if dry_run:
+            console.print("[yellow]Dry run mode - no API calls will be made.[/yellow]")
+            return
+
+        try:
+            assessor = Assessor(model=model) if model else Assessor()
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            console.print("[dim]Set ANTHROPIC_API_KEY in your environment or .env file[/dim]")
+            raise SystemExit(1)
+
+        result = assessor.assess(tech_title, tech_description, tech_raw_data)
+
+        if isinstance(result, AssessmentError):
+            console.print(f"[red]Assessment failed:[/red] {result.message}")
+            raise SystemExit(1)
+
+        # Store result
+        assessment_data = _build_assessment_data(result)
+        db.store_assessment(tech_id, assessment_data)
+
+        # Print result
+        console.print(f"\n[bold green]Assessment complete![/bold green]")
+        console.print(f"  Tier: {result.assessment_tier}")
+        console.print(f"  Composite score: {result.composite_score:.4f}")
+        if result.trl_gap:
+            console.print(f"  TRL Gap: score={result.trl_gap.score:.2f}, confidence={result.trl_gap.confidence:.2f}")
+            console.print(f"    Implied: {result.trl_gap.details.get('inventor_implied_tier', 'N/A')} -> Assessed: {result.trl_gap.details.get('assessed_tier', 'N/A')}")
+        if result.false_barrier:
+            console.print(f"  False Barrier: score={result.false_barrier.score:.2f}, confidence={result.false_barrier.confidence:.2f}")
+            console.print(f"    Barrier: {result.false_barrier.details.get('stated_barrier', 'N/A')}")
+        if result.alt_application:
+            console.print(f"  Alt Application: score={result.alt_application.score:.2f}, confidence={result.alt_application.confidence:.2f}")
+            apps = result.alt_application.details.get("suggested_applications", [])
+            for app in apps:
+                console.print(f"    - {app.get('application', 'N/A')}")
+        console.print(f"  Cost: ${result.total_cost:.6f}")
+        return
+
+    # --- Fetch technologies for batch processing ---
+    limit = batch if batch else 9999
+    technologies = db.get_unassessed_technologies(
+        limit=limit,
+        university=university,
+        force=force,
+    )
+
+    if not technologies:
+        console.print("[yellow]No technologies to assess.[/yellow]")
+        if not force:
+            console.print("[dim]Use --force to re-assess already assessed technologies.[/dim]")
+        return
+
+    console.print(f"\n[bold blue]Found {len(technologies)} technologies to assess[/bold blue]")
+
+    # --- Handle --dry-run: show tier breakdown ---
+    if dry_run:
+        console.print("[yellow]Dry run mode - no API calls will be made[/yellow]")
+
+        tier_counts = {"full": 0, "limited": 0, "skipped": 0}
+        uni_counts: dict[str, dict[str, int]] = {}
+
+        for tech in technologies:
+            tier = determine_assessment_tier(tech.title, tech.description, tech.raw_data)
+            tier_counts[tier] += 1
+
+            if tech.university not in uni_counts:
+                uni_counts[tech.university] = {"full": 0, "limited": 0, "skipped": 0}
+            uni_counts[tech.university][tier] += 1
+
+        # Tier summary table
+        tier_table = Table(title="Assessment Tier Breakdown")
+        tier_table.add_column("Tier", style="bold")
+        tier_table.add_column("Count", justify="right")
+        tier_table.add_column("Percentage", justify="right")
+
+        total = len(technologies)
+        for tier_name in ["full", "limited", "skipped"]:
+            count = tier_counts[tier_name]
+            pct = f"{count / total * 100:.1f}%" if total > 0 else "0%"
+            tier_table.add_row(tier_name, str(count), pct)
+
+        tier_table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]", "[bold]100%[/bold]")
+        console.print(tier_table)
+
+        # Per-university table
+        uni_table = Table(title="Per University Breakdown")
+        uni_table.add_column("University", style="bold")
+        uni_table.add_column("Full", justify="right")
+        uni_table.add_column("Limited", justify="right")
+        uni_table.add_column("Skipped", justify="right")
+        uni_table.add_column("Total", justify="right")
+
+        for uni_code in sorted(uni_counts.keys()):
+            counts = uni_counts[uni_code]
+            uni_total = counts["full"] + counts["limited"] + counts["skipped"]
+            uni_table.add_row(
+                uni_code,
+                str(counts["full"]),
+                str(counts["limited"]),
+                str(counts["skipped"]),
+                str(uni_total),
+            )
+
+        console.print(uni_table)
+        return
+
+    # --- Batch assessment ---
+    # Initialize assessor
+    try:
+        assessor = Assessor(model=model) if model else Assessor()
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("[dim]Set ANTHROPIC_API_KEY in your environment or .env file[/dim]")
+        raise SystemExit(1)
+
+    # Determine tiers and filter out skipped
+    items_to_assess = []
+    skipped_count = 0
+
+    for tech in technologies:
+        tier = determine_assessment_tier(tech.title, tech.description, tech.raw_data)
+        if tier == "skipped":
+            skipped_count += 1
+            continue
+        items_to_assess.append((tech.id, tech.title, tech.description, tech.raw_data))
+
+    if not items_to_assess:
+        console.print(f"[yellow]All {skipped_count} technologies were skipped (insufficient data).[/yellow]")
+        return
+
+    console.print(f"  Assessing: {len(items_to_assess)}")
+    console.print(f"  Skipped (insufficient data): {skipped_count}")
+    console.print(f"  Model: {assessor.model}")
+    console.print(f"  Max concurrent: {max_concurrent}")
+    console.print()
+
+    # Run batch assessment with progress bar
+    success_count = 0
+    error_count = 0
+    total_cost = 0.0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Assessing...", total=len(items_to_assess))
+
+        def on_progress(current: int, total: int) -> None:
+            nonlocal success_count, error_count, total_cost
+            progress.update(
+                task,
+                completed=current,
+                description=f"Assessed {current}/{total} | ${total_cost:.4f}",
+            )
+
+        results = asyncio.run(
+            assessor.assess_batch(
+                items=items_to_assess,
+                on_progress=on_progress,
+                max_concurrent=max_concurrent,
+            )
+        )
+
+        for tech_id, result in results:
+            if isinstance(result, AssessmentResult):
+                assessment_data = _build_assessment_data(result)
+                db.store_assessment(tech_id, assessment_data)
+                success_count += 1
+                total_cost += result.total_cost
+            else:
+                error_count += 1
+                if ctx.obj["verbose"]:
+                    console.print(f"[red]{tech_id}:[/red] Error - {result.message}")
+
+            progress.update(
+                task,
+                description=f"Assessed {success_count + error_count}/{len(items_to_assess)} | ${total_cost:.4f}",
+            )
+
+    # Summary table
+    summary = Table(title="Assessment Summary")
+    summary.add_column("Metric", style="bold")
+    summary.add_column("Value", justify="right")
+
+    summary.add_row("Total assessed", str(success_count))
+    summary.add_row("Skipped (insufficient data)", str(skipped_count))
+    summary.add_row("Errors", str(error_count))
+    summary.add_row("Total cost", f"${total_cost:.4f}")
+    if success_count > 0:
+        summary.add_row("Avg cost per assessment", f"${total_cost / success_count:.6f}")
+    summary.add_row("Model", assessor.model)
+
+    console.print()
+    console.print(summary)
 
 
 if __name__ == "__main__":

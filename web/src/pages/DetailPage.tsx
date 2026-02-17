@@ -4,6 +4,7 @@ import { Header } from '../components/Layout'
 import { useTechnology } from '../hooks'
 import { parseRawData } from '../components/Detail/parseRawData'
 import { ContentSections } from '../components/Detail/ContentSections'
+import { AssessmentSection } from '../components/Detail/AssessmentSection'
 import { SidePanel } from '../components/Detail/SidePanel'
 import { getUniversityName } from '../utils/universityNames'
 
@@ -192,6 +193,7 @@ export function DetailPage() {
         {/* Two Column Layout */}
         <div className="flex flex-col lg:flex-row gap-8">
           <div className="flex-1 min-w-0 max-w-3xl">
+            <AssessmentSection uuid={tech.uuid} />
             <ContentSections tech={tech} data={data} />
           </div>
           <SidePanel tech={tech} data={data} />

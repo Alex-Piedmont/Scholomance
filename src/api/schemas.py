@@ -101,3 +101,44 @@ class TaxonomySubfield(BaseModel):
 class TaxonomyField(BaseModel):
     name: str
     subfields: list[TaxonomySubfield]
+
+
+# Assessment/Opportunity schemas
+class CategoryAssessmentResponse(BaseModel):
+    score: Optional[Decimal] = None
+    confidence: Optional[Decimal] = None
+    reasoning: Optional[str] = None
+    details: Optional[dict] = None
+
+class OpportunitySummary(BaseModel):
+    uuid: str
+    title: str
+    university: str
+    top_field: Optional[str] = None
+    subfield: Optional[str] = None
+    patent_status: Optional[str] = None
+    composite_score: Optional[Decimal] = None
+    assessment_tier: Optional[str] = None
+    trl_gap: Optional[CategoryAssessmentResponse] = None
+    false_barrier: Optional[CategoryAssessmentResponse] = None
+    alt_application: Optional[CategoryAssessmentResponse] = None
+    assessed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class PaginatedOpportunities(BaseModel):
+    items: list[OpportunitySummary]
+    total: int
+    page: int
+    pages: int
+    limit: int
+
+class OpportunityStats(BaseModel):
+    total_assessed: int
+    total_full: int
+    total_limited: int
+    avg_composite_score: Optional[Decimal] = None
+    high_trl_gap_count: int  # score > 0.7
+    high_false_barrier_count: int
+    high_alt_application_count: int

@@ -9,3 +9,5 @@ export {
 export { useTechnologies, useTaxonomy } from './useTechnologies'
 
 export { useTechnology } from './useTechnology'
+
+export { useOpportunities } from './useOpportunities'

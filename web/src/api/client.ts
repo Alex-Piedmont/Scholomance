@@ -8,6 +8,10 @@ import type {
   TechnologyDetail,
   TaxonomyField,
   TechnologyFilters,
+  OpportunitySummary,
+  PaginatedOpportunities,
+  OpportunityFilters,
+  OpportunityStats,
 } from './types'
 
 const API_BASE = '/api'
@@ -97,6 +101,30 @@ export const technologiesApi = {
   get: (uuid: string) => fetchJson<TechnologyDetail>(`/technologies/${uuid}`),
 
   getTaxonomy: () => fetchJson<TaxonomyField[]>('/taxonomy'),
+}
+
+// Opportunities API
+async function postJson<T>(endpoint: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' })
+
+  if (!response.ok) {
+    throw new ApiError(response.status, `API error: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+export const opportunitiesApi = {
+  list: (filters: OpportunityFilters = {}) => {
+    const query = buildQueryString(filters as Record<string, unknown>)
+    return fetchJson<PaginatedOpportunities>(`/opportunities${query}`)
+  },
+
+  get: (uuid: string) => fetchJson<OpportunitySummary>(`/opportunities/${uuid}`),
+
+  assess: (uuid: string) => postJson<OpportunitySummary>(`/opportunities/${uuid}/assess`),
+
+  getStats: () => fetchJson<OpportunityStats>('/opportunities/stats'),
 }
 
 export { ApiError }

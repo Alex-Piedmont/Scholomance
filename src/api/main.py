@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from ..database import db
-from .routes import stats_router, technologies_router
+from .routes import stats_router, technologies_router, opportunities_router
 
 app = FastAPI(
     title="Tech Transfer Dashboard API",
@@ -35,6 +35,7 @@ app.add_middleware(
 # Include routers
 app.include_router(stats_router)
 app.include_router(technologies_router)
+app.include_router(opportunities_router)
 
 
 @app.get("/api/health")

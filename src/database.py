@@ -78,6 +78,12 @@ class Technology(Base):
     patent_status_source = Column(String(50))
     last_patent_check_at = Column(DateTime(timezone=True))
 
+    # Assessment tracking
+    assessment_status = Column(String(50), default="pending")
+    composite_opportunity_score = Column(DECIMAL(3, 2))
+    last_assessed_at = Column(DateTime(timezone=True))
+
+
     # Unique constraint
     __table_args__ = (
         Index("idx_technologies_university", "university"),
@@ -86,11 +92,53 @@ class Technology(Base):
         Index("idx_technologies_scraped_at", "scraped_at"),
         Index("idx_technologies_classification_status", "classification_status"),
         Index("idx_technologies_patent_status", "patent_status"),
+        Index("idx_technologies_assessment_status", "assessment_status"),
+        Index("idx_technologies_composite_score", "composite_opportunity_score"),
         {"extend_existing": True},
     )
 
     def __repr__(self):
         return f"<Technology(id={self.id}, university={self.university}, tech_id={self.tech_id})>"
+
+
+
+class TechnologyAssessment(Base):
+    """SQLAlchemy model for technology_assessments table."""
+
+    __tablename__ = "technology_assessments"
+
+    id = Column(Integer, primary_key=True)
+    technology_id = Column(Integer, ForeignKey("technologies.id", ondelete="CASCADE"), nullable=False)
+    assessed_at = Column(DateTime(timezone=True), server_default=func.now())
+    model = Column(String(100), nullable=False)
+    assessment_tier = Column(String(20), nullable=False)
+
+    composite_score = Column(DECIMAL(3, 2))
+
+    trl_gap_score = Column(DECIMAL(3, 2))
+    trl_gap_confidence = Column(DECIMAL(3, 2))
+    trl_gap_reasoning = Column(Text)
+    trl_gap_details = Column(JSONB)
+
+    false_barrier_score = Column(DECIMAL(3, 2))
+    false_barrier_confidence = Column(DECIMAL(3, 2))
+    false_barrier_reasoning = Column(Text)
+    false_barrier_details = Column(JSONB)
+
+    alt_application_score = Column(DECIMAL(3, 2))
+    alt_application_confidence = Column(DECIMAL(3, 2))
+    alt_application_reasoning = Column(Text)
+    alt_application_details = Column(JSONB)
+
+    prompt_tokens = Column(Integer)
+    completion_tokens = Column(Integer)
+    total_cost = Column(DECIMAL(10, 6))
+    raw_response = Column(JSONB)
+
+    technology = relationship("Technology", backref="assessments")
+
+    def __repr__(self):
+        return f"<TechnologyAssessment(id={self.id}, technology_id={self.technology_id}, composite_score={self.composite_score})>"
 
 
 class University(Base):
@@ -746,6 +794,142 @@ class Database:
                 for status, count in results
             }
 
+
+
+    def store_assessment(
+        self,
+        technology_id: int,
+        assessment_data: dict,
+    ) -> Optional[TechnologyAssessment]:
+        """
+        Store an assessment for a technology.
+
+        Inserts into technology_assessments and updates denormalized fields on technologies.
+
+        Args:
+            technology_id: Database ID of the technology
+            assessment_data: Dictionary with assessment fields
+
+        Returns:
+            TechnologyAssessment object if successful, None if technology not found
+        """
+        with self.get_session() as session:
+            tech = session.query(Technology).filter(Technology.id == technology_id).first()
+            if not tech:
+                logger.warning(f"Technology {technology_id} not found for assessment")
+                return None
+
+            # Create assessment record
+            assessment = TechnologyAssessment(
+                technology_id=technology_id,
+                model=assessment_data.get("model", ""),
+                assessment_tier=assessment_data.get("assessment_tier", "full"),
+                composite_score=assessment_data.get("composite_score"),
+                trl_gap_score=assessment_data.get("trl_gap_score"),
+                trl_gap_confidence=assessment_data.get("trl_gap_confidence"),
+                trl_gap_reasoning=assessment_data.get("trl_gap_reasoning"),
+                trl_gap_details=assessment_data.get("trl_gap_details"),
+                false_barrier_score=assessment_data.get("false_barrier_score"),
+                false_barrier_confidence=assessment_data.get("false_barrier_confidence"),
+                false_barrier_reasoning=assessment_data.get("false_barrier_reasoning"),
+                false_barrier_details=assessment_data.get("false_barrier_details"),
+                alt_application_score=assessment_data.get("alt_application_score"),
+                alt_application_confidence=assessment_data.get("alt_application_confidence"),
+                alt_application_reasoning=assessment_data.get("alt_application_reasoning"),
+                alt_application_details=assessment_data.get("alt_application_details"),
+                prompt_tokens=assessment_data.get("prompt_tokens"),
+                completion_tokens=assessment_data.get("completion_tokens"),
+                total_cost=assessment_data.get("total_cost"),
+                raw_response=assessment_data.get("raw_response"),
+            )
+            session.add(assessment)
+
+            # Update denormalized fields on technology
+            tech.assessment_status = "completed"
+            tech.composite_opportunity_score = assessment_data.get("composite_score")
+            tech.last_assessed_at = datetime.now(timezone.utc)
+
+            session.flush()
+            logger.info(f"Stored assessment for technology {technology_id} (composite_score={assessment_data.get('composite_score')})")
+            return assessment
+
+    def get_unassessed_technologies(
+        self,
+        limit: int = 100,
+        university: Optional[str] = None,
+        force: bool = False,
+    ) -> list[Technology]:
+        """
+        Get technologies that need assessment.
+
+        Args:
+            limit: Maximum number to return
+            university: Filter by university code
+            force: If True, return all technologies (completed + pending).
+                   If False, only return pending.
+
+        Returns:
+            List of Technology objects ordered by id
+        """
+        with self.get_session() as session:
+            query = session.query(Technology)
+
+            if university:
+                query = query.filter(Technology.university == university)
+
+            if not force:
+                query = query.filter(Technology.assessment_status == "pending")
+
+            query = query.order_by(Technology.id)
+            query = query.limit(limit)
+
+            # Execute query and make transient copies so they can be used outside session
+            results = query.all()
+            from sqlalchemy.orm import make_transient
+            for obj in results:
+                _ = obj.id, obj.university, obj.tech_id, obj.title, obj.description
+                _ = obj.url, obj.raw_data, obj.top_field, obj.subfield
+                _ = obj.assessment_status, obj.composite_opportunity_score
+                session.expunge(obj)
+                make_transient(obj)
+            return results
+
+    def get_assessment_for_technology(
+        self,
+        technology_id: int,
+    ) -> Optional[TechnologyAssessment]:
+        """
+        Get the latest assessment for a technology.
+
+        Args:
+            technology_id: Database ID of the technology
+
+        Returns:
+            Latest TechnologyAssessment object, or None if not found
+        """
+        with self.get_session() as session:
+            assessment = (
+                session.query(TechnologyAssessment)
+                .filter(TechnologyAssessment.technology_id == technology_id)
+                .order_by(TechnologyAssessment.assessed_at.desc())
+                .first()
+            )
+            if assessment:
+                # Access attributes before detaching
+                _ = (assessment.id, assessment.technology_id, assessment.assessed_at,
+                     assessment.model, assessment.assessment_tier, assessment.composite_score,
+                     assessment.trl_gap_score, assessment.trl_gap_confidence,
+                     assessment.trl_gap_reasoning, assessment.trl_gap_details,
+                     assessment.false_barrier_score, assessment.false_barrier_confidence,
+                     assessment.false_barrier_reasoning, assessment.false_barrier_details,
+                     assessment.alt_application_score, assessment.alt_application_confidence,
+                     assessment.alt_application_reasoning, assessment.alt_application_details,
+                     assessment.prompt_tokens, assessment.completion_tokens,
+                     assessment.total_cost, assessment.raw_response)
+                from sqlalchemy.orm import make_transient
+                session.expunge(assessment)
+                make_transient(assessment)
+            return assessment
 
 # Global database instance
 db = Database()
