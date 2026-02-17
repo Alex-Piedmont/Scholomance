@@ -850,6 +850,10 @@ class Database:
             tech.last_assessed_at = datetime.now(timezone.utc)
 
             session.flush()
+            # Ensure all attributes are loaded before session closes
+            session.refresh(assessment)
+            from sqlalchemy.orm import make_transient
+            make_transient(assessment)
             logger.info(f"Stored assessment for technology {technology_id} (composite_score={assessment_data.get('composite_score')})")
             return assessment
 
