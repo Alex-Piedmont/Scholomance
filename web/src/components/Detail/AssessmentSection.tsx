@@ -130,10 +130,10 @@ function FalseBarrierDetails({ details }: { details: Record<string, unknown> }) 
 
 function AltApplicationDetails({ details }: { details: Record<string, unknown> }) {
   const original = details.original_application as string | undefined
-  const suggested = details.suggested_applications as string[] | undefined
+  const suggested = details.suggested_applications as Array<{ application?: string; reasoning?: string; market_signal?: string } | string> | undefined
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       {original && (
         <p>
           <span className="text-gray-500">Original:</span>{' '}
@@ -141,14 +141,23 @@ function AltApplicationDetails({ details }: { details: Record<string, unknown> }
         </p>
       )}
       {suggested && suggested.length > 0 && (
-        <div>
-          <span className="text-gray-500">Suggested:</span>{' '}
-          {suggested.map((app, i) => (
-            <span key={i}>
-              <span className="font-medium">{app}</span>
-              {i < suggested.length - 1 && ', '}
-            </span>
-          ))}
+        <div className="space-y-2">
+          <span className="text-gray-500">Suggested:</span>
+          <ul className="ml-4 space-y-2">
+            {suggested.map((app, i) => {
+              if (typeof app === 'string') {
+                return <li key={i} className="font-medium">{app}</li>
+              }
+              return (
+                <li key={i}>
+                  <span className="font-medium">{app.application || 'Unknown'}</span>
+                  {app.reasoning && (
+                    <p className="text-gray-600 text-xs mt-0.5">{app.reasoning}</p>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
         </div>
       )}
     </div>
