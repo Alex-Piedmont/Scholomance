@@ -78,7 +78,13 @@ logs/
 credentials.json
 secrets.json
 
+# Database dumps
+scholomance.dump
+*.dump
+
+# Documents
+*.docx
+
 # Web dashboard
 web/node_modules/
 web/dist/
-.dashboard_progress
