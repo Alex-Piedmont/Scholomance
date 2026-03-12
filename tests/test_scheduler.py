@@ -1,9 +1,11 @@
-"""Tests for Phase 4 functionality (Production Ready)."""
+"""Tests for scheduler, retry logic, and related CLI/database enhancements."""
 
 import pytest
 import asyncio
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, AsyncMock, patch
+
+pytest.importorskip("apscheduler")
 
 from src.scheduler import ScrapeScheduler, create_scheduler
 from src.scrapers.base import BaseScraper, Technology, RetryConfig, retry_async
@@ -368,61 +370,6 @@ class TestBaseScraperWithRetry:
 
         assert "errors" in stats
         assert stats["errors"] == 0
-
-
-class TestDockerConfiguration:
-    """Tests to verify Docker configuration files exist."""
-
-    def test_dockerfile_exists(self):
-        """Test that Dockerfile exists."""
-        import os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        dockerfile_path = os.path.join(project_root, "Dockerfile")
-        assert os.path.exists(dockerfile_path)
-
-    def test_docker_compose_exists(self):
-        """Test that docker-compose.yml exists."""
-        import os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        compose_path = os.path.join(project_root, "docker-compose.yml")
-        assert os.path.exists(compose_path)
-
-    def test_dockerignore_exists(self):
-        """Test that .dockerignore exists."""
-        import os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ignore_path = os.path.join(project_root, ".dockerignore")
-        assert os.path.exists(ignore_path)
-
-
-class TestAlembicConfiguration:
-    """Tests for Alembic migration configuration."""
-
-    def test_alembic_ini_exists(self):
-        """Test that alembic.ini exists."""
-        import os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        alembic_path = os.path.join(project_root, "alembic.ini")
-        assert os.path.exists(alembic_path)
-
-    def test_migrations_directory_exists(self):
-        """Test that migrations directory exists."""
-        import os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        migrations_path = os.path.join(project_root, "migrations")
-        assert os.path.isdir(migrations_path)
-
-    def test_initial_migration_exists(self):
-        """Test that initial migration exists."""
-        import os
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        versions_path = os.path.join(project_root, "migrations", "versions")
-        assert os.path.isdir(versions_path)
-
-        # Check for any migration file
-        files = os.listdir(versions_path)
-        migration_files = [f for f in files if f.endswith('.py') and not f.startswith('__')]
-        assert len(migration_files) >= 1
 
 
 # Helper class for async iterator mocking

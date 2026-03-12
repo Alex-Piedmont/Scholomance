@@ -164,6 +164,10 @@ class TestInitDbCommand:
 class TestScheduleCommand:
     """Tests for the schedule command."""
 
+    @pytest.fixture(autouse=True)
+    def _require_apscheduler(self):
+        pytest.importorskip("apscheduler", reason="apscheduler not installed")
+
     def test_schedule_help(self, cli_runner):
         """Test schedule help."""
         result = cli_runner.invoke(main, ["schedule", "--help"])
