@@ -14,6 +14,15 @@
 - [x] Updated .gitignore (added *.dump, *.docx; removed .dashboard_progress)
 - [x] Deleted redundant setup.py
 
+## Completed - Flintbox Scraper Refactor (2026-03-17)
+
+- [x] Converted cornell.py, gatech.py, uga.py, uiuc.py from standalone ~420-line scrapers to 13-line thin FlintboxScraper subclasses (eliminated ~1,600 lines of duplicated code)
+- [x] Extracted parsing utilities into new flintbox_parsing.py (parse_embedded_sections, clean_html_text, is_metadata, clean_html_field)
+- [x] Decomposed monolithic _parse_api_item_with_detail (250 lines) into focused methods: _merge_detail_fields, _apply_benefit_fallback, _extract_publication_links, _clean_raw_data_fields, _build_description, _extract_top_level_fields
+- [x] Added ENABLE_BENEFIT_FALLBACK class attribute to gate benefit-as-abstract fallback
+- [x] Removed _init_browser/_close_browser backwards-compat stubs
+- [x] All 13 Flintbox scrapers now share the same inheritance path; all 35 scrapers load successfully
+
 ## Next Steps
 
 ### Scheduler / Cron Job Infrastructure
@@ -32,6 +41,12 @@
 - [ ] Decide on single source of truth: pyproject.toml vs requirements.txt
 - [ ] Consider removing requirements.txt and having Dockerfiles install from pyproject.toml directly
 - [ ] Keep requirements-api.txt as curated Railway-specific subset (documented)
+
+### Scraper Fixes (Tier 2 & 3)
+- [ ] See detailed roadmap: `tasks/scraper_fixes_roadmap.md`
+- [ ] Tier 2: UConn QA, Princeton, Texas State, Buffalo, UF
+- [ ] Tier 3: UC System (no section parsing), MIT (detail pages never scraped)
+- [ ] Follow-up re-scrapes: ttu, cornell, michiganstate, columbia, gatech
 
 ### Schema Management
 - [ ] schema.sql is kept as human-readable reference; SQLAlchemy ORM is the runtime source of truth
