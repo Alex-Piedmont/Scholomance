@@ -180,8 +180,9 @@ class UFScraper(BaseScraper):
 
             # Add parsed sections
             for key in ("abstract", "background", "short_description", "advantages",
-                        "applications", "publications", "ip_status", "market_opportunity",
-                        "development_stage", "benefit"):
+                        "applications", "market_application", "publications", "ip_status",
+                        "market_opportunity", "development_stage", "benefit",
+                        "solution", "technical_problem"):
                 if sections.get(key):
                     raw_data[key] = sections[key]
 
@@ -214,13 +215,14 @@ class UFScraper(BaseScraper):
             ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
             ("development_stage", r"DEVELOPMENT\s+STAGE"),
             ("applications", r"APPLICATIONS"),
+            ("market_application", r"APPLICATION\b"),
             ("advantages", r"ADVANTAGES"),
             ("publications", r"PUBLICATIONS"),
             ("ip_status", r"IP\s+STATUS"),
             ("benefit", r"BENEFITS?"),
             ("inventors_section", r"INVENTORS?"),
             ("technical_problem", r"TECHNICAL\s+PROBLEM"),
-            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
+            ("solution", r"(?:TECHNICAL\s+)?SOLUTION|TECHNOLOGY\b"),
         ]
 
         all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
@@ -248,10 +250,34 @@ class UFScraper(BaseScraper):
             elif current_key:
                 if current_key == "inventors_section":
                     sections[current_key] = part
+                elif current_key == "advantages":
+                    # Split advantages into array by tabs, newlines, or bullet markers
+                    items = re.split(r"\t|\n|•|►|■", part)
+                    items = [re.sub(r"\s+", " ", item).strip().rstrip(",") for item in items]
+                    items = [item for item in items if item and item != "&nbsp;"]
+                    if items:
+                        sections[current_key] = items
+                elif current_key in ("market_application", "solution", "full_description", "benefit", "background"):
+                    # Preserve paragraph breaks for long-form fields
+                    cleaned = re.sub(r"[ \t]+", " ", part).strip()
+                    if cleaned:
+                        sections[current_key] = cleaned
                 else:
                     cleaned = re.sub(r"\s+", " ", part).strip()
                     if cleaned:
                         sections[current_key] = cleaned
+
+        # Extract short_description from preamble text (before first header)
+        first_header_match = header_re.search(text)
+        if first_header_match:
+            preamble = text[:first_header_match.start()].strip()
+            if preamble:
+                lines = [l.strip() for l in preamble.split('\n') if l.strip() and l.strip() != '&nbsp;']
+                if lines:
+                    first_line = re.sub(r"\s+", " ", lines[0]).strip()
+                    # Only use as short_description if it's reasonably short (< 200 chars)
+                    if len(first_line) < 200:
+                        sections.setdefault("short_description", first_line)
 
         inv_text = sections.pop("inventors_section", "")
         if inv_text:
@@ -264,6 +290,17 @@ class UFScraper(BaseScraper):
             ]
             if inventors:
                 sections["inventors"] = inventors
+
+        # If no sections extracted but raw text is substantial, store as full_description
+        has_content_sections = any(k for k in sections if k != "inventors" and k != "short_description")
+        if not has_content_sections and len(text) > 100:
+            # Strip HTML tags but preserve paragraph breaks
+            cleaned = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+            cleaned = re.sub(r"<[^>]+>", "", cleaned)
+            cleaned = re.sub(r"&nbsp;", " ", cleaned)
+            cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+            if cleaned:
+                sections["full_description"] = cleaned
 
         return sections
 

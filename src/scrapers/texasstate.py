@@ -28,10 +28,12 @@ class TexasStateScraper(RSSBaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
-                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
-                        tech.description = detail["full_description"]
+                    if detail.get("background") and "description" in tech.raw_data:
+                        del tech.raw_data["description"]
+                    if detail.get("background") and not tech.description:
+                        tech.description = detail["background"]
+                    elif detail.get("background") and tech.description and len(detail["background"]) > len(tech.description):
+                        tech.description = detail["background"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):
@@ -117,11 +119,6 @@ class TexasStateScraper(RSSBaseScraper):
             if case_match:
                 detail["case_id"] = case_match.group(1).strip()
 
-            # Main description
-            desc_div = soup.select_one(".c_content, .description, .product-description-box")
-            if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
-
             # Parse sections by headings
             for heading in soup.find_all(["h2", "h3", "strong"]):
                 htxt = heading.get_text(strip=True).lower()
@@ -143,14 +140,13 @@ class TexasStateScraper(RSSBaseScraper):
                 if not items:
                     continue
                 if "description" in htxt:
-                    if "full_description" not in detail:
-                        detail["full_description"] = "\n".join(items)
+                    detail["background"] = "\n".join(items)
                 elif "advantage" in htxt or "benefit" in htxt:
                     detail["advantages"] = items
                 elif "application" in htxt or "market" in htxt:
                     detail["applications"] = items
                 elif "problem" in htxt:
-                    detail["problems_solved"] = items
+                    detail["technical_problem"] = "\n".join(items)
                 elif "development" in htxt or "stage" in htxt:
                     detail["development_stage"] = " ".join(items)
 
@@ -189,25 +185,46 @@ class TexasStateScraper(RSSBaseScraper):
             if contact:
                 detail["contact"] = contact
 
-            # Patent table
-            patent_table = soup.find("table")
+            # Patent table - find by checking first-row header cells
+            # Each cell must be short (actual column header, not layout content)
+            patent_table = None
+            for tbl in soup.find_all("table"):
+                first_row = tbl.find("tr", recursive=False)
+                if first_row:
+                    cells = first_row.find_all(["th", "td"], recursive=False)
+                    cell_texts = [c.get_text(strip=True).lower() for c in cells]
+                    short_cells = [ct for ct in cell_texts if len(ct) < 50]
+                    if (len(short_cells) >= 5
+                            and len(short_cells) == len(cell_texts)
+                            and any("patent" in ct or "serial" in ct for ct in short_cells)):
+                        patent_table = tbl
+                        break
             if patent_table:
-                rows = patent_table.find_all("tr")
+                rows = patent_table.find_all("tr", recursive=False)
                 if len(rows) > 1:
-                    headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+                    headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"], recursive=False)]
                     patents = []
                     for row in rows[1:]:
-                        cells = [td.get_text(strip=True) for td in row.find_all("td")]
-                        if cells:
+                        cells = [td.get_text(strip=True) for td in row.find_all("td", recursive=False)]
+                        if cells and any(c for c in cells):
                             patents.append(dict(zip(headers, cells)))
                     if patents:
                         detail["patent_table"] = patents
                         for p in patents:
-                            ps = p.get("patent status", "").lower()
+                            ps = p.get("patent status", p.get("status", "")).lower()
                             if "pending" in ps:
                                 detail["patent_status"] = "Pending"
                             elif p.get("patent no.") or p.get("patent number"):
                                 detail["patent_status"] = "Granted"
+                        # Construct ip_status from patent table
+                        ip_parts = []
+                        for p in patents:
+                            parts = [p.get("app type", p.get("type", "")), p.get("country", ""),
+                                     p.get("serial no.", p.get("serial no", "")),
+                                     p.get("file date", ""), p.get("patent status", p.get("status", ""))]
+                            ip_parts.append(" | ".join(part for part in parts if part))
+                        if ip_parts:
+                            detail["ip_status"] = "; ".join(ip_parts)
 
             if not detail.get("patent_status"):
                 if "patent pending" in text.lower():

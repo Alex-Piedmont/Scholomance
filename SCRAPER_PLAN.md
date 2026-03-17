@@ -52,8 +52,8 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 |---|------|-----------|--------|
 | 19 | `northwestern` | Northwestern | **Approved** |
 | 20 | `unlv` | UNLV | **Approved** |
-| 21 | `waynestate` | Wayne State | Unreviewed |
-| 22 | `jhu` | Johns Hopkins | Unreviewed |
+| 21 | `waynestate` | Wayne State | **Approved** |
+| 22 | `jhu` | Johns Hopkins | **Approved** |
 | 23 | `buffalo` | Buffalo | Unreviewed |
 | 24 | `uf` | Florida | Unreviewed |
 
@@ -87,10 +87,10 @@ Import helpers from `flintbox_base.py` but have their own implementation.
 | Flintbox Base | 8 | 7 | 1 | 0 |
 | Flintbox Standalone | 5 | 4 | 1 | 0 |
 | TechPublisher | 5 | 5 | 0 | 0 |
-| Algolia API | 6 | 2 | 0 | 4 |
+| Algolia API | 6 | 4 | 0 | 2 |
 | RSS Feed | 5 | 1 | 0 | 4 |
 | Custom | 6 | 1 | 0 | 5 |
-| **Total** | **35** | **20** | **2** | **13** |
+| **Total** | **35** | **21** | **2** | **12** |
 
 ---
 

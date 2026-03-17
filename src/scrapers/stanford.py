@@ -296,8 +296,78 @@ class StanfordScraper(BaseScraper):
             # Description from docket__text
             desc_div = soup.select_one("div.docket__text")
             if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
                 detail["description_html"] = str(desc_div)
+
+                # Stage of Development/Research from bold or strong label in description
+                stage_pattern = re.compile(r"Stage\s+of\s+(Development|Research)", re.I)
+                stage_label = desc_div.find(["b", "strong"], string=stage_pattern)
+                if not stage_label:
+                    # Also try finding by checking .get_text() on b/strong tags
+                    for tag in desc_div.find_all(["b", "strong"]):
+                        if stage_pattern.search(tag.get_text()):
+                            stage_label = tag
+                            break
+
+                if stage_label:
+                    stage_parts = []
+                    # Collect all text content following the label within the same parent
+                    for sib in stage_label.next_siblings:
+                        if hasattr(sib, 'name'):
+                            if sib.name == 'ul':
+                                # Stage items in a list
+                                for li in sib.find_all('li'):
+                                    text = li.get_text(strip=True)
+                                    if text:
+                                        stage_parts.append(text)
+                                break
+                            elif sib.name in ('br',):
+                                continue
+                            elif sib.name in ('em', 'i', 'span', 'a'):
+                                text = sib.get_text(strip=True)
+                                if text:
+                                    stage_parts.append(text)
+                            elif sib.name in ('b', 'strong'):
+                                # Next bold label = new section, stop
+                                break
+                            elif sib.name in ('p', 'div', 'h2', 'h3'):
+                                break
+                            else:
+                                text = sib.get_text(strip=True)
+                                if text:
+                                    stage_parts.append(text)
+                        elif isinstance(sib, str):
+                            text = sib.strip()
+                            if text:
+                                stage_parts.append(text)
+
+                    # Also check siblings of the parent <p> if stage content is in a sibling <ul>
+                    if not stage_parts and stage_label.parent and stage_label.parent != desc_div:
+                        for sib in stage_label.parent.next_siblings:
+                            if hasattr(sib, 'name') and sib.name == 'ul':
+                                for li in sib.find_all('li'):
+                                    text = li.get_text(strip=True)
+                                    if text:
+                                        stage_parts.append(text)
+                                break
+                            elif hasattr(sib, 'name') and sib.name and sib.name not in ('br',):
+                                break
+
+                    if stage_parts:
+                        # Join parts with spaces and clean up
+                        stage_text = " ".join(stage_parts).strip().strip(':').strip()
+                        if stage_text:
+                            detail["development_stage"] = stage_text
+
+                    # Remove the stage section from description to avoid duplication
+                    # If the label is inside a <p> and that <p> only contains the stage info, remove the whole <p>
+                    label_parent = stage_label.parent
+                    if label_parent and label_parent != desc_div and label_parent.name == 'p':
+                        label_parent.decompose()
+                    else:
+                        stage_label.decompose()
+
+                # Build full_description after stage extraction (so stage text is excluded)
+                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
 
                 # Related portfolio: links to other /technology/ pages within description
                 related = []
@@ -316,22 +386,45 @@ class StanfordScraper(BaseScraper):
                     continue
                 heading = h2.get_text(strip=True).lower()
 
-                items = [li.get_text(strip=True) for li in section.select("li") if li.get_text(strip=True)]
+                # Collect items from <li> tags; also fall back to <p> tags if no <li> found
+                li_elements = section.select("li")
+                items = [li.get_text(separator=" ", strip=True) for li in li_elements if li.get_text(strip=True)]
+                if not items:
+                    # Fall back to <p> tags (skip the heading itself)
+                    for p in section.select("p"):
+                        text = p.get_text(separator=" ", strip=True)
+                        if text:
+                            # Split on <br> if present
+                            brs = p.find_all("br")
+                            if brs:
+                                parts = [part.strip() for part in re.split(r'\n', p.get_text(separator="\n", strip=False)) if part.strip()]
+                                items.extend(parts)
+                            else:
+                                items.append(text)
 
                 if "application" in heading:
                     detail["applications"] = items
+                    detail["market_application"] = "\n".join(f"- {item}" for item in items) if items else None
                 elif "advantage" in heading:
                     detail["advantages"] = items
-                elif "publication" in heading:
-                    # Preserve links for publications
+                elif "publication" in heading or "reference" in heading or "related" in heading:
+                    # Preserve links for publications / reference media
                     pub_items = []
                     for li in section.select("li"):
                         a = li.select_one("a")
                         if a and a.get("href"):
-                            pub_items.append({"text": li.get_text(strip=True), "url": a["href"]})
+                            pub_items.append({"text": li.get_text(separator=" ", strip=True), "url": a["href"]})
                         elif li.get_text(strip=True):
-                            pub_items.append({"text": li.get_text(strip=True)})
-                    detail["publications"] = pub_items
+                            pub_items.append({"text": li.get_text(separator=" ", strip=True)})
+                    detail["publications"] = pub_items if pub_items else [{"text": t} for t in items]
+                elif "patent" in heading:
+                    detail["ip_status"] = "\n".join(items) if items else None
+                    # Extract patent URL if present
+                    for li in section.select("li"):
+                        link = li.find("a")
+                        if link and link.get("href"):
+                            detail["ip_url"] = link.get("href")
+                            break
                 elif "innovator" in heading:
                     detail["inventors"] = items
                 elif "licensing contact" in heading:

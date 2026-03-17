@@ -111,29 +111,81 @@ class UCSystemScraper(BaseScraper):
                 if title_elem:
                     detail["title"] = title_elem.get_text(strip=True)
 
-                # Get campus/university from breadcrumb or content
-                campus_elem = soup.find("a", href=re.compile(r"\?campus="))
-                if campus_elem:
-                    detail["campus"] = campus_elem.get_text(strip=True)
-                else:
-                    # Try to find in page text
-                    page_text = soup.get_text()
-                    for campus_key, campus_name in self.CAMPUS_NAMES.items():
-                        if f"university of california, {campus_key}" in page_text.lower():
-                            detail["campus"] = campus_name
-                            break
+                # Get campus/university from page text
+                page_text = soup.get_text().lower()
+                for campus_key, campus_name in self.CAMPUS_NAMES.items():
+                    if f"university of california, {campus_key}" in page_text:
+                        detail["campus"] = campus_name
+                        break
 
-                # Get description from meta tag or content
+                # Get short_description from meta tag
                 meta_desc = soup.find("meta", attrs={"name": "description"})
                 if meta_desc:
-                    detail["description"] = meta_desc.get("content", "")
+                    detail["short_description"] = meta_desc.get("content", "").strip()
 
-                # Try to get fuller description from page content
-                content_div = soup.find("div", class_="field-item")
-                if content_div:
-                    desc_text = content_div.get_text(strip=True)
-                    if desc_text and len(desc_text) > len(detail.get("description", "")):
-                        detail["description"] = desc_text
+                # Parse h3-delimited sections
+                for h3 in soup.find_all("h3"):
+                    heading = h3.get_text(strip=True).lower()
+                    content_parts = []
+                    list_items = []
+                    ip_urls = []
+                    sibling = h3.find_next_sibling()
+                    while sibling and sibling.name != "h3":
+                        # Stop at footer-like elements
+                        if sibling.name in ("footer", "nav") or (
+                            sibling.get("class") and any(
+                                c in " ".join(sibling.get("class", []))
+                                for c in ("footer", "related", "sidebar")
+                            )
+                        ):
+                            break
+                        if sibling.name in ("ul", "ol"):
+                            for li in sibling.find_all("li"):
+                                list_items.append(li.get_text(separator=" ", strip=True))
+                        elif sibling.name == "p":
+                            # Extract any hyperlinks for patent/IP sections
+                            for a_tag in sibling.find_all("a", href=True):
+                                ip_urls.append(a_tag["href"])
+                            text = sibling.get_text(strip=True)
+                            if text:
+                                content_parts.append(text)
+                        elif sibling.name == "table":
+                            # Parse table into structured format
+                            rows = sibling.find_all("tr")
+                            table_lines = []
+                            for row in rows:
+                                cells = row.find_all(["th", "td"])
+                                cell_texts = [c.get_text(strip=True) for c in cells]
+                                table_lines.append(" | ".join(cell_texts))
+                                # Extract links from table cells too
+                                for cell in cells:
+                                    for a_tag in cell.find_all("a", href=True):
+                                        ip_urls.append(a_tag["href"])
+                            content_parts.append("\n".join(table_lines))
+                        sibling = sibling.find_next_sibling()
+
+                    text_content = "\n\n".join(content_parts)
+
+                    if "abstract" in heading or "brief description" in heading or "overview" in heading or "summary" in heading:
+                        detail.setdefault("background", text_content)
+                    elif "full description" in heading or heading == "description":
+                        detail["full_description"] = text_content
+                    elif "application" in heading or "suggested use" in heading:
+                        detail["applications"] = list_items if list_items else [t for t in text_content.split("\u2022") if t.strip()] if "\u2022" in text_content else text_content
+                    elif "feature" in heading or "benefit" in heading or "advantage" in heading:
+                        detail["advantages"] = list_items if list_items else [t.strip() for t in text_content.split("\u2022") if t.strip()] if "\u2022" in text_content else text_content
+                    elif "patent" in heading:
+                        detail["ip_status"] = text_content
+                        if ip_urls:
+                            detail["ip_url"] = ip_urls[0] if len(ip_urls) == 1 else ip_urls
+                    elif "inventor" in heading:
+                        # Filter out link text like "Additional technologies by these inventors"
+                        filtered = [
+                            item for item in list_items
+                            if "additional technologies" not in item.lower()
+                            and "see more" not in item.lower()
+                        ]
+                        detail["inventors"] = filtered if filtered else [text_content] if text_content else []
 
                 # Get categories
                 categories = []
@@ -211,13 +263,11 @@ class UCSystemScraper(BaseScraper):
                 tech_id = re.sub(r"[^a-zA-Z0-9]+", "-", title.lower())[:50]
 
             url = detail.get("url", "")
-            description = detail.get("description", "")
 
-            # Clean description
+            # Use background or full_description as the description (no truncation)
+            description = detail.get("background", "") or detail.get("full_description", "") or detail.get("short_description", "")
             if description:
-                description = re.sub(r'\s+', ' ', description).strip()
-                if len(description) > 500:
-                    description = description[:497] + "..."
+                description = re.sub(r'[ \t]+', ' ', description).strip()
 
             # Get campus info
             campus = detail.get("campus", "")
@@ -231,12 +281,20 @@ class UCSystemScraper(BaseScraper):
                 "campus": campus,
                 "categories": categories,
                 "case_number": detail.get("case_number"),
+                "short_description": detail.get("short_description"),
+                "background": detail.get("background"),
+                "full_description": detail.get("full_description"),
+                "applications": detail.get("applications"),
+                "advantages": detail.get("advantages"),
+                "ip_status": detail.get("ip_status"),
+                "inventors": detail.get("inventors"),
+                "ip_url": detail.get("ip_url"),
             }
 
-            # Add campus to keywords if available
             keywords = categories.copy() if categories else []
-            if campus:
-                keywords.insert(0, campus)
+
+            # Extract inventors for the Technology dataclass field
+            innovators = detail.get("inventors")
 
             return Technology(
                 university="ucsystem",
@@ -244,8 +302,10 @@ class UCSystemScraper(BaseScraper):
                 title=title,
                 url=url,
                 description=description if description else None,
+                innovators=innovators if innovators else None,
                 keywords=keywords if keywords else None,
                 raw_data=raw_data,
+                patent_status=detail.get("ip_status"),
             )
 
         except Exception as e:

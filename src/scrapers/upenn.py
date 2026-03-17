@@ -97,10 +97,10 @@ class UPennScraper(BaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
-                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
-                        tech.description = detail["full_description"]
+                    if detail.get("short_description") and not tech.description:
+                        tech.description = detail["short_description"]
+                    elif detail.get("short_description") and tech.description and len(detail["short_description"]) > len(tech.description):
+                        tech.description = detail["short_description"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):
@@ -224,7 +224,7 @@ class UPennScraper(BaseScraper):
             # Description from main content
             desc_div = soup.select_one(".c_content, .js-text, .description, .product-description-box")
             if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+                detail["short_description"] = desc_div.get_text(separator="\n", strip=True)
 
             # Parse sections by h2/h3/strong headings
             for heading in soup.find_all(["h2", "h3", "strong"]):
@@ -236,9 +236,11 @@ class UPennScraper(BaseScraper):
                 while nxt:
                     if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
                         break
+                    if nxt.find(["h2", "h3"]):
+                        break
                     if nxt.name == "ul":
                         for li in nxt.find_all("li"):
-                            t = li.get_text(strip=True)
+                            t = li.get_text(separator=" ", strip=True)
                             if t:
                                 items.append(t)
                     elif nxt.name == "p" and nxt.get_text(strip=True):
@@ -249,11 +251,11 @@ class UPennScraper(BaseScraper):
                 if not items:
                     continue
                 if "problem" in htxt:
-                    detail["problem"] = " ".join(items)
+                    detail["technical_problem"] = " ".join(items)
                 elif "solution" in htxt:
                     detail["solution"] = " ".join(items)
-                elif "technology" in htxt and "full_description" not in detail:
-                    detail["full_description"] = "\n".join(items)
+                elif "technology" in htxt:
+                    detail["benefit"] = "\n".join(items)
                 elif "advantage" in htxt or "benefit" in htxt:
                     detail["advantages"] = items
                 elif "application" in htxt:
@@ -263,7 +265,7 @@ class UPennScraper(BaseScraper):
                 elif "partnership" in htxt or "desired" in htxt:
                     detail["desired_partnerships"] = items
                 elif "intellectual" in htxt or "ip" in htxt:
-                    detail["ip_info"] = " ".join(items)
+                    detail["ip_status"] = " ".join(items)
 
             # Keywords from #keywordLinks div
             kw_div = soup.find(id="keywordLinks")
