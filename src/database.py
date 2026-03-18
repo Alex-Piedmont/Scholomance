@@ -935,5 +935,43 @@ class Database:
                 make_transient(assessment)
             return assessment
 
+    def update_raw_data_fields(
+        self,
+        uuid: str,
+        updates: dict[str, Any],
+    ) -> Optional[Technology]:
+        """
+        Update specific fields in a technology's raw_data JSONB.
+
+        Merges updates into existing raw_data without replacing the whole object.
+
+        Args:
+            uuid: Technology UUID
+            updates: Dictionary of field_name -> new_value to merge
+
+        Returns:
+            Updated Technology object, or None if not found
+        """
+        with self.get_session() as session:
+            tech = session.query(Technology).filter(Technology.uuid == uuid).first()
+            if not tech:
+                return None
+
+            current_raw_data = dict(tech.raw_data or {})
+            current_raw_data.update(updates)
+            tech.raw_data = current_raw_data
+            tech.updated_at = datetime.now(timezone.utc)
+
+            session.flush()
+            session.refresh(tech)
+            # Return a detached copy
+            from sqlalchemy.orm import make_transient
+            _ = (tech.id, tech.uuid, tech.university, tech.tech_id, tech.title,
+                 tech.description, tech.url, tech.raw_data, tech.updated_at)
+            session.expunge(tech)
+            make_transient(tech)
+            return tech
+
+
 # Global database instance
 db = Database()

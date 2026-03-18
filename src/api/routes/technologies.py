@@ -4,7 +4,10 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+import aiohttp
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy import String, func, or_
 
 from ...database import db, Technology
@@ -31,6 +34,7 @@ def list_technologies(
     patent_status: Optional[str] = Query(None, description="Filter by patent status (unknown, pending, provisional, filed, granted, expired)"),
     from_date: Optional[datetime] = Query(None, description="Filter by first_seen >= date"),
     to_date: Optional[datetime] = Query(None, description="Filter by first_seen <= date"),
+    updated_since: Optional[datetime] = Query(None, description="Filter by updated_at >= timestamp (for QA of recent re-scrapes)"),
 ):
     """List technologies with pagination and filters."""
     with db.get_session() as session:
@@ -65,6 +69,9 @@ def list_technologies(
 
         if to_date:
             query = query.filter(Technology.first_seen <= to_date)
+
+        if updated_since:
+            query = query.filter(Technology.updated_at >= updated_since)
 
         # Get total count
         total = query.count()
@@ -152,3 +159,54 @@ def get_taxonomy():
         )
         for field_name, definition in TAXONOMY.items()
     ]
+
+
+class RawDataUpdate(BaseModel):
+    updates: dict[str, object]
+
+
+@router.patch("/technologies/{uuid}/raw-data", response_model=TechnologyDetail)
+def patch_raw_data(uuid: UUID, body: RawDataUpdate):
+    """Update specific fields in a technology's raw_data."""
+    tech = db.update_raw_data_fields(str(uuid), body.updates)
+    if not tech:
+        raise HTTPException(status_code=404, detail="Technology not found")
+
+    return TechnologyDetail(
+        uuid=str(tech.uuid),
+        university=tech.university,
+        tech_id=tech.tech_id,
+        title=tech.title,
+        description=tech.description,
+        url=tech.url,
+        top_field=tech.top_field,
+        subfield=tech.subfield,
+        patent_geography=tech.patent_geography,
+        keywords=tech.keywords,
+        classification_status=tech.classification_status,
+        classification_confidence=tech.classification_confidence,
+        patent_status=tech.patent_status,
+        patent_status_confidence=tech.patent_status_confidence,
+        patent_status_source=tech.patent_status_source,
+        scraped_at=tech.scraped_at,
+        updated_at=tech.updated_at,
+        first_seen=tech.first_seen,
+        raw_data=tech.raw_data,
+    )
+
+
+@router.get("/proxy")
+async def proxy_page(url: str = Query(..., description="URL to proxy")):
+    """Proxy an external page to bypass X-Frame-Options restrictions."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=aiohttp.ClientTimeout(total=15),
+                allow_redirects=True,
+            ) as resp:
+                html = await resp.text()
+                return HTMLResponse(content=html, status_code=resp.status)
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch: {e}")

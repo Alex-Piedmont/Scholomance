@@ -99,6 +99,7 @@ export interface TechnologyFilters {
   patent_status?: string
   from_date?: string
   to_date?: string
+  updated_since?: string
 }
 
 // Assessment types

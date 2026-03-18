@@ -129,13 +129,16 @@ class BuffaloScraper(BaseScraper):
             )
 
             # Parse categories from finalPathCategories
+            # Filter out campus names and top-level groupings
+            skip_categories = {"University at Buffalo", "Technology Classifications"}
             categories = []
             final_path = item.get("finalPathCategories", "")
             if final_path:
                 for path in final_path.split(", "):
                     parts = path.split(" > ")
-                    if len(parts) > 1:
-                        categories.append(parts[-1].strip())
+                    leaf = parts[-1].strip() if len(parts) > 1 else ""
+                    if leaf and leaf not in skip_categories:
+                        categories.append(leaf)
 
             # Parse inventors from structured field or path string
             inventors = []
@@ -166,8 +169,7 @@ class BuffaloScraper(BaseScraper):
                 "object_id": item.get("objectID"),
                 "title": title,
                 "url": url,
-                "description": description,
-                "full_description": full_description if full_description else None,
+                "short_description": description,
                 "disclosure_date": item.get("disclosureDate"),
                 "categories": categories,
                 "inventors": inventors,
@@ -175,8 +177,8 @@ class BuffaloScraper(BaseScraper):
                 "client_departments": item.get("clientDepartments"),
             }
 
-            # Add parsed sections
-            for key in ("abstract", "background", "short_description", "advantages",
+            # Add parsed sections (short_description already set above)
+            for key in ("abstract", "background", "advantages",
                         "applications", "publications", "ip_status", "market_opportunity",
                         "development_stage", "benefit", "solution", "technical_problem",
                         "trl"):
@@ -184,13 +186,13 @@ class BuffaloScraper(BaseScraper):
                     raw_data[key] = sections[key]
 
             # If no structured sections found but full description is substantial,
-            # ensure full_description is stored as cleaned text
+            # store as cleaned plain text in description
             if not sections and full_description:
                 cleaned = re.sub(r"<[^>]+>", " ", full_description)
                 cleaned = re.sub(r"&nbsp;", " ", cleaned)
                 cleaned = re.sub(r"\s+", " ", cleaned).strip()
                 if len(cleaned) > 100:
-                    raw_data["full_description"] = cleaned
+                    raw_data["description"] = cleaned
 
             return Technology(
                 university="buffalo",
@@ -272,14 +274,12 @@ class BuffaloScraper(BaseScraper):
                     if items:
                         sections[field_name] = items
                         continue
-                # Fall back: strip HTML then split on tabs, newlines, bullets
-                content = re.sub(r"<[^>]+>", " ", raw_html)
+                # Fall back: strip HTML but preserve tabs/newlines as delimiters
+                content = re.sub(r"<[^>]+>", "\n", raw_html)
                 content = re.sub(r"&nbsp;", " ", content)
-                content = re.sub(r"\s+", " ", content).strip()
-                if not content:
-                    continue
+                # Split on tabs, newlines, or bullet characters BEFORE collapsing whitespace
                 items = re.split(r"\t+|\n+|•|►|■", content)
-                items = [item.strip() for item in items if item.strip()]
+                items = [re.sub(r"\s+", " ", item).strip() for item in items if item.strip()]
                 if items:
                     sections[field_name] = items
                 continue

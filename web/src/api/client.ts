@@ -101,6 +101,21 @@ export const technologiesApi = {
   get: (uuid: string) => fetchJson<TechnologyDetail>(`/technologies/${uuid}`),
 
   getTaxonomy: () => fetchJson<TaxonomyField[]>('/taxonomy'),
+
+  patchRawData: async (uuid: string, updates: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE}/technologies/${uuid}/raw-data`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    })
+    if (!response.ok) {
+      throw new ApiError(response.status, `API error: ${response.statusText}`)
+    }
+    return response.json() as Promise<TechnologyDetail>
+  },
+
+  getProxyUrl: (url: string) =>
+    `${API_BASE}/proxy?url=${encodeURIComponent(url)}`,
 }
 
 // Opportunities API
