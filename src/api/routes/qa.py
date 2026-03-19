@@ -108,7 +108,12 @@ def create_sample(university: str):
 
 @router.post("/samples/{university}/refresh")
 async def refresh_sample(university: str):
-    """Re-scrape detail pages for the sample technologies."""
+    """Re-scrape detail pages for the sample technologies.
+
+    For Flintbox scrapers, runs the full parsing pipeline (_parse_api_item_with_detail)
+    to produce properly cleaned/normalized raw_data. For others, merges detail fields.
+    Corrected fields are always preserved.
+    """
     from ...scrapers import get_scraper
     from ...scrapers.flintbox_base import FlintboxScraper
 
@@ -123,6 +128,108 @@ async def refresh_sample(university: str):
     is_flintbox = isinstance(scraper, FlintboxScraper)
 
     results = []
+
+    if is_flintbox:
+        results = await _refresh_flintbox_sample(scraper, sample_ids)
+    else:
+        results = await _refresh_generic_sample(scraper, sample_ids)
+
+    return {"university": university, "results": results}
+
+
+async def _refresh_flintbox_sample(scraper, sample_ids: list[int]) -> list[dict]:
+    """Refresh Flintbox sample techs through the full parsing pipeline."""
+    import aiohttp
+
+    # Build a map of tech_id (string) -> db info for the sample
+    tech_map: dict[str, dict] = {}
+    for tid in sample_ids:
+        with db.get_session() as session:
+            tech = session.query(Technology).filter(Technology.id == tid).first()
+            if tech:
+                tech_map[str(tech.tech_id)] = {
+                    "db_id": tid,
+                    "raw_data": dict(tech.raw_data or {}),
+                }
+
+    if not tech_map:
+        return [{"id": tid, "status": "not_found"} for tid in sample_ids]
+
+    # Fetch API list items for these techs
+    api_items = {}
+    params = {
+        "organizationId": scraper.ORGANIZATION_ID,
+        "organizationAccessKey": scraper.ACCESS_KEY,
+        "query": "",
+    }
+    try:
+        await scraper._init_session()
+        # Fetch pages until we find all sample techs (they're the first N by id)
+        for page_num in range(1, 20):
+            async with scraper._session.get(
+                scraper.api_url, params={**params, "page": page_num}
+            ) as resp:
+                if resp.status != 200:
+                    break
+                data = await resp.json()
+                items = data.get("data", [])
+                if not items:
+                    break
+                for item in items:
+                    item_id = str(item.get("id", ""))
+                    if item_id in tech_map:
+                        api_items[item_id] = item
+                # Stop once we've found all sample items
+                if len(api_items) >= len(tech_map):
+                    break
+    finally:
+        await scraper._close_session()
+
+    # Run each through the full pipeline
+    results = []
+    for tech_id_str, info in tech_map.items():
+        tid = info["db_id"]
+        api_item = api_items.get(tech_id_str)
+        if not api_item:
+            results.append({"id": tid, "status": "not_in_api"})
+            continue
+
+        try:
+            parsed_tech = await scraper._parse_api_item_with_detail(api_item)
+            if not parsed_tech:
+                results.append({"id": tid, "status": "parse_failed"})
+                continue
+
+            new_raw = dict(parsed_tech.raw_data or {})
+
+            # Protect corrected fields
+            corrections = db.get_corrections_for_technology(tid)
+            for field_name in corrections:
+                if field_name in info["raw_data"]:
+                    new_raw[field_name] = info["raw_data"][field_name]
+
+            with db.get_session() as session:
+                tech = session.query(Technology).filter(Technology.id == tid).first()
+                if tech:
+                    tech.raw_data = new_raw
+                    tech.updated_at = datetime.now(timezone.utc)
+
+            results.append({"id": tid, "status": "refreshed"})
+        except Exception as e:
+            results.append({"id": tid, "status": "error", "error": str(e)})
+
+    # Include not-found entries for any IDs not in tech_map
+    found_ids = {info["db_id"] for info in tech_map.values()}
+    for tid in sample_ids:
+        if tid not in found_ids:
+            results.append({"id": tid, "status": "not_found"})
+
+    return results
+
+
+async def _refresh_generic_sample(scraper, sample_ids: list[int]) -> list[dict]:
+    """Refresh non-Flintbox sample techs by merging detail page data."""
+    results = []
     for tech_id in sample_ids:
         with db.get_session() as session:
             tech = session.query(Technology).filter(Technology.id == tech_id).first()
@@ -134,26 +241,16 @@ async def refresh_sample(university: str):
             url = tech.url
 
             try:
-                if is_flintbox:
-                    tech_uuid = raw_data.get("uuid")
-                    if not tech_uuid:
-                        results.append({"id": tech_id, "status": "no_uuid"})
-                        continue
-                    detail = await scraper.scrape_technology_detail(tech_uuid)
-                else:
-                    if not hasattr(scraper, "scrape_technology_detail"):
-                        results.append({"id": tech_id, "status": "no_detail_method"})
-                        continue
-                    detail = await scraper.scrape_technology_detail(url)
+                if not hasattr(scraper, "scrape_technology_detail"):
+                    results.append({"id": tech_id, "status": "no_detail_method"})
+                    continue
+                detail = await scraper.scrape_technology_detail(url)
 
                 if not detail:
                     results.append({"id": tech_id, "status": "no_detail"})
                     continue
 
-                # Get existing corrections to protect them
                 corrections = db.get_corrections_for_technology(tech_id)
-
-                # Merge detail into raw_data, skipping corrected fields
                 for key, value in detail.items():
                     if key not in corrections:
                         raw_data[key] = value
@@ -165,7 +262,7 @@ async def refresh_sample(university: str):
             except Exception as e:
                 results.append({"id": tech_id, "status": "error", "error": str(e)})
 
-    return {"university": university, "results": results}
+    return results
 
 
 # ── Conflicts ────────────────────────────────────────────────────
