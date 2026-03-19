@@ -111,12 +111,19 @@ class UCSystemScraper(BaseScraper):
                 if title_elem:
                     detail["title"] = title_elem.get_text(strip=True)
 
-                # Get campus/university from page text
-                page_text = soup.get_text().lower()
+                # Get campus/university — check contact section and page text
+                page_text = soup.get_text()
+                page_text_lower = page_text.lower()
                 for campus_key, campus_name in self.CAMPUS_NAMES.items():
-                    if f"university of california, {campus_key}" in page_text:
+                    if f"university of california, {campus_key}" in page_text_lower:
                         detail["campus"] = campus_name
                         break
+                else:
+                    # Try matching short campus names directly (e.g. "UCLA", "UCSF")
+                    for campus_name in self.CAMPUS_NAMES.values():
+                        if campus_name in page_text:
+                            detail["campus"] = campus_name
+                            break
 
                 # Get short_description from meta tag
                 meta_desc = soup.find("meta", attrs={"name": "description"})
@@ -166,7 +173,7 @@ class UCSystemScraper(BaseScraper):
 
                     text_content = "\n\n".join(content_parts)
 
-                    if "abstract" in heading or "brief description" in heading or "overview" in heading or "summary" in heading:
+                    if "abstract" in heading or "brief description" in heading or "overview" in heading or "summary" in heading or heading == "background":
                         detail.setdefault("background", text_content)
                     elif "full description" in heading or heading == "description":
                         detail["full_description"] = text_content
@@ -178,8 +185,9 @@ class UCSystemScraper(BaseScraper):
                         detail["ip_status"] = text_content
                         if ip_urls:
                             detail["ip_url"] = ip_urls[0] if len(ip_urls) == 1 else ip_urls
-                    elif "inventor" in heading:
-                        # Filter out link text like "Additional technologies by these inventors"
+                    elif heading == "inventors" or heading == "inventor":
+                        # Only match the exact "Inventors" heading, not
+                        # "Additional Technologies by these Inventors"
                         filtered = [
                             item for item in list_items
                             if "additional technologies" not in item.lower()
@@ -187,12 +195,23 @@ class UCSystemScraper(BaseScraper):
                         ]
                         detail["inventors"] = filtered if filtered else [text_content] if text_content else []
 
-                # Get categories
+                # Get categories — look for h4 "Categorized As" or div with class
                 categories = []
                 cat_section = soup.find("div", class_="field-name-field-categories")
                 if cat_section:
                     for cat in cat_section.find_all("a"):
                         categories.append(cat.get_text(strip=True))
+                else:
+                    for h4 in soup.find_all("h4"):
+                        if "categorized" in h4.get_text(strip=True).lower():
+                            sib = h4.find_next_sibling()
+                            while sib and sib.name not in ("h3", "h4"):
+                                for a_tag in sib.find_all("a"):
+                                    text = a_tag.get_text(strip=True)
+                                    if text:
+                                        categories.append(text)
+                                sib = sib.find_next_sibling()
+                            break
                 detail["categories"] = categories
 
                 # Get UC Case number if available
