@@ -1067,7 +1067,11 @@ class Database:
                 return None
 
             current_raw_data = dict(tech.raw_data or {})
-            current_raw_data.update(updates)
+            for key, value in updates.items():
+                if value is None:
+                    current_raw_data.pop(key, None)
+                else:
+                    current_raw_data[key] = value
             tech.raw_data = current_raw_data
             tech.updated_at = datetime.now(timezone.utc)
 

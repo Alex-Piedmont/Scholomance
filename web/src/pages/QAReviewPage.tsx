@@ -76,6 +76,10 @@ export function QAReviewPage() {
   // Field states keyed by field name
   const [fieldStates, setFieldStates] = useState<Record<string, FieldState>>({})
 
+  // Pending field operations (renames and deletes)
+  const [pendingRenames, setPendingRenames] = useState<Record<string, string>>({}) // oldKey -> newKey
+  const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set())
+
   // Conflicts for this technology
   const [conflicts, setConflicts] = useState<QAConflict[]>([])
 
@@ -175,11 +179,55 @@ export function QAReviewPage() {
     setHasDirtyFields(true)
   }
 
+  const handleRenameField = (oldKey: string) => {
+    const newKey = prompt(`Rename "${oldKey}" to:`, oldKey)
+    if (!newKey || newKey === oldKey) return
+    if (fieldStates[newKey] || (tech?.raw_data && newKey in tech.raw_data)) {
+      alert(`Field "${newKey}" already exists`)
+      return
+    }
+    setPendingRenames((prev) => ({ ...prev, [oldKey]: newKey }))
+    setFieldStates((prev) => {
+      const next = { ...prev }
+      next[newKey] = { ...next[oldKey], status: 'incorrect' }
+      delete next[oldKey]
+      return next
+    })
+    setHasDirtyFields(true)
+  }
+
+  const handleDeleteField = (key: string) => {
+    if (!confirm(`Delete field "${key}"?`)) return
+    setPendingDeletes((prev) => new Set([...prev, key]))
+    setFieldStates((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setHasDirtyFields(true)
+  }
+
+  const handleAddField = () => {
+    const name = prompt('New field name:')
+    if (!name) return
+    if (fieldStates[name] || (tech?.raw_data && name in tech.raw_data)) {
+      alert(`Field "${name}" already exists`)
+      return
+    }
+    setFieldStates((prev) => ({
+      ...prev,
+      [name]: { status: 'incorrect', editedValue: '' },
+    }))
+    setHasDirtyFields(true)
+  }
+
   const handleSave = async () => {
     const techUuid = tech?.uuid
     if (!techUuid || !tech) return
 
     const updates: Record<string, unknown> = {}
+
+    // Collect field corrections
     for (const [key, state] of Object.entries(fieldStates)) {
       if (state.status === 'incorrect') {
         const originalValue = tech.raw_data?.[key]
@@ -189,6 +237,29 @@ export function QAReviewPage() {
           updates[key] = state.editedValue
         }
       }
+    }
+
+    // Collect renames: delete old key (null) + set new key with value
+    for (const [oldKey, newKey] of Object.entries(pendingRenames)) {
+      const value = tech.raw_data?.[oldKey]
+      updates[oldKey] = null
+      // Use edited value if the renamed field was also edited, otherwise use original
+      const state = fieldStates[newKey]
+      if (state?.status === 'incorrect') {
+        const orig = value
+        if (Array.isArray(orig) && !isComplexValue(orig)) {
+          updates[newKey] = state.editedValue.split('\n').filter(Boolean)
+        } else {
+          updates[newKey] = state.editedValue
+        }
+      } else {
+        updates[newKey] = value
+      }
+    }
+
+    // Collect deletes
+    for (const key of pendingDeletes) {
+      updates[key] = null
     }
 
     if (Object.keys(updates).length === 0) {
@@ -202,17 +273,11 @@ export function QAReviewPage() {
     try {
       const updated = await technologiesApi.patchRawData(techUuid, updates)
       setTech(updated)
-      setFieldStates((prev) => {
-        const next = { ...prev }
-        for (const key of Object.keys(updates)) {
-          if (next[key]) {
-            next[key] = { ...next[key], status: 'correct' }
-          }
-        }
-        return next
-      })
+      initFieldStates(updated)
+      setPendingRenames({})
+      setPendingDeletes(new Set())
       setHasDirtyFields(false)
-      setSaveMessage(`Saved ${Object.keys(updates).length} correction(s)`)
+      setSaveMessage(`Saved ${Object.keys(updates).length} change(s)`)
     } catch (e: unknown) {
       setSaveMessage(`Error: ${e instanceof Error ? e.message : 'Save failed'}`)
     } finally {
@@ -267,11 +332,12 @@ export function QAReviewPage() {
   }
 
   const rawData = tech.raw_data || {}
-  const fieldKeys = Object.keys(rawData).filter((k) => !SKIP_FIELDS.has(k))
+  const fieldKeys = Object.keys(fieldStates)
   const proxyUrl = technologiesApi.getProxyUrl(tech.url)
 
   const checkedCount = Object.values(fieldStates).filter((s) => s.status !== 'unchecked').length
   const incorrectCount = Object.values(fieldStates).filter((s) => s.status === 'incorrect').length
+  const hasChanges = incorrectCount > 0 || Object.keys(pendingRenames).length > 0 || pendingDeletes.size > 0
 
   // Conflicts for this specific technology (by UUID match on tech_id)
   // We need to match by technology DB id - which isn't in TechnologyDetail
@@ -387,15 +453,41 @@ export function QAReviewPage() {
               if (!state) return null
 
               const isComplex = isComplexValue(value)
+              const isRenamed = Object.values(pendingRenames).includes(key)
+              const isNewField = !(key in rawData)
 
               return (
-                <div key={key} className="bg-white rounded-lg border border-gray-200 p-3">
+                <div key={key} className={`bg-white rounded-lg border p-3 ${
+                  isRenamed || isNewField ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200'
+                }`}>
                   {/* Field header */}
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-gray-700">
-                      {formatFieldName(key)}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-gray-700">
+                        {formatFieldName(key)}
+                      </span>
+                      {isRenamed && (
+                        <span className="text-xs text-blue-600 italic">renamed</span>
+                      )}
+                      {isNewField && !isRenamed && (
+                        <span className="text-xs text-blue-600 italic">new</span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleRenameField(key)}
+                        className="px-1.5 py-0.5 text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                        title="Rename field"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        onClick={() => handleDeleteField(key)}
+                        className="px-1.5 py-0.5 text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        title="Delete field"
+                      >
+                        Del
+                      </button>
                       <button
                         onClick={() => updateFieldStatus(key, 'correct')}
                         className={`px-2 py-0.5 text-xs rounded transition-colors ${
@@ -465,17 +557,25 @@ export function QAReviewPage() {
                 No raw_data fields to review
               </div>
             )}
+
+            {/* Add field button */}
+            <button
+              onClick={handleAddField}
+              className="w-full py-2 text-xs text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors"
+            >
+              + Add field
+            </button>
           </div>
 
           {/* Save button */}
-          {incorrectCount > 0 && (
+          {hasChanges && (
             <div className="sticky bottom-0 p-4 bg-white border-t border-gray-200">
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                {saving ? 'Saving...' : `Save ${incorrectCount} Correction(s)`}
+                {saving ? 'Saving...' : `Save Changes`}
               </button>
               {saveMessage && (
                 <p className={`mt-2 text-xs text-center ${saveMessage.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
@@ -485,7 +585,7 @@ export function QAReviewPage() {
             </div>
           )}
 
-          {saveMessage && incorrectCount === 0 && (
+          {saveMessage && !hasChanges && (
             <div className="p-4 text-xs text-center text-green-600">{saveMessage}</div>
           )}
         </div>
