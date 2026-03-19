@@ -119,7 +119,7 @@ class MinnesotaScraper(TechPublisherScraper):
             detail: dict = {}
 
             # Technology number from page content
-            text = soup.get_text()
+            text = soup.get_text(separator="\n")
             tech_num_match = re.search(r'(?:Technology\s*#?|Tech\s*(?:No\.?|Number):?\s*)(\d{6,})', text)
             if tech_num_match:
                 detail["technology_number"] = tech_num_match.group(1)
@@ -235,8 +235,12 @@ class MinnesotaScraper(TechPublisherScraper):
                     elif "publication" in h_lower or "reference" in h_lower or "citation" in h_lower:
                         detail["publications"] = text
                     else:
-                        # Sub-technology heading — add to abstract
-                        abstract_parts.append(text)
+                        # Skip boilerplate sections; store other content as 'other'
+                        if any(kw in h_lower for kw in ("contact", "office", "learn more", "share")):
+                            continue
+                        existing_other = detail.get("other", "")
+                        section_text = f"**{heading}**\n\n{text}"
+                        detail["other"] = f"{existing_other}\n\n{section_text}".strip() if existing_other else section_text
 
                 if description_parts:
                     detail["full_description"] = "\n\n".join(description_parts)
