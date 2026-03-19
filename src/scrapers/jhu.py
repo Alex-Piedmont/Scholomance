@@ -261,12 +261,10 @@ class JHUScraper(BaseScraper):
                 "client_departments": item.get("clientDepartments"),
             }
 
-            # Add parsed sections
-            for key in ("abstract", "background", "short_description", "advantages",
-                        "applications", "publications", "ip_status", "market_opportunity",
-                        "development_stage", "benefit", "technical_problem", "solution"):
-                if sections.get(key):
-                    raw_data[key] = sections[key]
+            # Add all parsed sections (both standard keys and original heading names)
+            for key, value in sections.items():
+                if key != "inventors_section" and key != "inventors" and value:
+                    raw_data[key] = value
 
             return Technology(
                 university="jhu",
@@ -315,6 +313,7 @@ class JHUScraper(BaseScraper):
         parts = header_re.split(text)
 
         current_key = None
+        current_heading = None
         for part in parts:
             if part is None:
                 continue
@@ -330,13 +329,35 @@ class JHUScraper(BaseScraper):
 
             if matched_key:
                 current_key = matched_key
+                # Preserve the original heading text (title-cased, no colon)
+                current_heading = re.sub(r":$", "", part).strip()
+                # Normalize heading to canonical display name
+                _HEADING_NAMES = {
+                    "advantages": "Value Proposition",
+                    "background": "Unmet Need",
+                    "publications": "Publication(s)",
+                    "development_stage": "Development Stage",
+                    "ip_status": "Patent Status",
+                    "technical_problem": "Problem Statement",
+                    "solution": "Technology Solution",
+                    "market_opportunity": "Market Opportunity",
+                    "benefit": "Benefits",
+                    "applications": "Applications",
+                    "abstract": "Abstract",
+                    "short_description": "Short Description",
+                }
+                current_heading = _HEADING_NAMES.get(current_key, current_heading)
             elif current_key:
                 if current_key == "inventors_section":
                     sections[current_key] = part
                 else:
                     cleaned = re.sub(r"\s+", " ", part).strip()
                     if cleaned:
+                        # Store under standard key for description fallback logic
                         sections[current_key] = cleaned
+                        # Also store under display heading name for QA review
+                        if current_heading and current_heading != current_key:
+                            sections[current_heading] = cleaned
 
         inv_text = sections.pop("inventors_section", "")
         if inv_text:
