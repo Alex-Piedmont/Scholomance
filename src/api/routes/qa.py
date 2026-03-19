@@ -150,6 +150,9 @@ async def refresh_sample(university: str):
 
     if is_flintbox:
         results = await _refresh_flintbox_sample(scraper, sample_ids)
+    elif hasattr(scraper, '_parse_algolia_hit'):
+        # Algolia-based scrapers (JHU etc.) need full pipeline re-parse
+        results = await _refresh_algolia_sample(scraper, sample_ids)
     else:
         results = await _refresh_generic_sample(scraper, sample_ids)
 
@@ -238,6 +241,105 @@ async def _refresh_flintbox_sample(scraper, sample_ids: list[int]) -> list[dict]
             results.append({"id": tid, "status": "error", "error": str(e)})
 
     # Include not-found entries for any IDs not in tech_map
+    found_ids = {info["db_id"] for info in tech_map.values()}
+    for tid in sample_ids:
+        if tid not in found_ids:
+            results.append({"id": tid, "status": "not_found"})
+
+    return results
+
+
+async def _refresh_algolia_sample(scraper, sample_ids: list[int]) -> list[dict]:
+    """Refresh Algolia-based sample techs (JHU) through the full parsing pipeline."""
+    import aiohttp
+
+    # Build tech_id -> db info map
+    tech_map: dict[str, dict] = {}
+    for tid in sample_ids:
+        with db.get_session() as session:
+            tech = session.query(Technology).filter(Technology.id == tid).first()
+            if tech:
+                tech_map[str(tech.tech_id)] = {
+                    "db_id": tid,
+                    "raw_data": dict(tech.raw_data or {}),
+                }
+
+    if not tech_map:
+        return [{"id": tid, "status": "not_found"} for tid in sample_ids]
+
+    # Query Algolia for the sample techs
+    algolia_hits: dict[str, dict] = {}
+    headers = {
+        "X-Algolia-Application-Id": scraper.ALGOLIA_APP_ID,
+        "X-Algolia-API-Key": scraper.ALGOLIA_API_KEY,
+        "Content-Type": "application/json",
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            for tech_id_str in tech_map:
+                payload = {
+                    "query": tech_id_str,
+                    "hitsPerPage": 5,
+                    "attributesToRetrieve": ["*"],
+                }
+                async with session.post(scraper.ALGOLIA_URL, headers=headers, json=payload) as resp:
+                    if resp.status != 200:
+                        continue
+                    data = await resp.json()
+                    for hit in data.get("hits", []):
+                        hit_id = hit.get("techID", "") or str(hit.get("objectID", ""))
+                        if hit_id == tech_id_str:
+                            algolia_hits[hit_id] = hit
+                            break
+    except Exception as e:
+        return [{"id": tid, "status": "error", "error": str(e)} for tid in sample_ids]
+
+    # Parse each through the full Algolia pipeline + detail enrichment
+    results = []
+    for tech_id_str, info in tech_map.items():
+        tid = info["db_id"]
+        hit = algolia_hits.get(tech_id_str)
+        if not hit:
+            results.append({"id": tid, "status": "not_in_algolia"})
+            continue
+
+        try:
+            parsed_tech = scraper._parse_algolia_hit(hit)
+            if not parsed_tech:
+                results.append({"id": tid, "status": "parse_failed"})
+                continue
+
+            new_raw = dict(parsed_tech.raw_data or {})
+
+            # Also fetch detail page for enrichment
+            try:
+                detail = await scraper.scrape_technology_detail(parsed_tech.url)
+                if detail:
+                    for key, value in detail.items():
+                        if key not in new_raw or not new_raw[key]:
+                            new_raw[key] = value
+                    # Update description from detail abstract if available
+                    if detail.get("abstract") and (not new_raw.get("description") or "&" in new_raw.get("description", "")):
+                        new_raw["description"] = detail["abstract"]
+            except Exception:
+                pass  # Detail enrichment is best-effort
+
+            # Protect corrected fields
+            corrections = db.get_corrections_for_technology(tid)
+            for field_name in corrections:
+                if field_name in info["raw_data"]:
+                    new_raw[field_name] = info["raw_data"][field_name]
+
+            with db.get_session() as session:
+                tech = session.query(Technology).filter(Technology.id == tid).first()
+                if tech:
+                    tech.raw_data = new_raw
+                    tech.updated_at = datetime.now(timezone.utc)
+
+            results.append({"id": tid, "status": "refreshed"})
+        except Exception as e:
+            results.append({"id": tid, "status": "error", "error": str(e)})
+
     found_ids = {info["db_id"] for info in tech_map.values()}
     for tid in sample_ids:
         if tid not in found_ids:
