@@ -13,6 +13,7 @@ function App() {
           <Route path="/technology/:uuid" element={<DetailPage />} />
           <Route path="/qa" element={<QAPage />} />
           <Route path="/qa/:uuid" element={<QAReviewPage />} />
+          <Route path="/qa/by-id/:dbId" element={<QAReviewPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

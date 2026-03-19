@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import { ErrorMessage } from '../components/common'
-import { technologiesApi } from '../api/client'
-import type { TechnologyDetail } from '../api/types'
+import { technologiesApi, qaApi } from '../api/client'
+import type { TechnologyDetail, QAConflict } from '../api/types'
 
 // Fields to skip in QA review (internal/structural, not page content)
 const SKIP_FIELDS = new Set([
@@ -36,7 +36,6 @@ function isSimpleArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0 && typeof value[0] !== 'object'
 }
 
-/** Render a simple string array as a bulleted list */
 function BulletList({ items }: { items: string[] }) {
   return (
     <ul className="list-disc list-inside space-y-0.5">
@@ -47,7 +46,6 @@ function BulletList({ items }: { items: string[] }) {
   )
 }
 
-/** Toggle bullet prefix on each line of a textarea value */
 function toggleBullets(text: string): string {
   const lines = text.split('\n').filter(Boolean)
   const allBulleted = lines.every((l) => l.startsWith('- '))
@@ -64,7 +62,7 @@ function isComplexValue(value: unknown): boolean {
 }
 
 export function QAReviewPage() {
-  const { uuid } = useParams<{ uuid: string }>()
+  const { uuid, dbId } = useParams<{ uuid?: string; dbId?: string }>()
   const navigate = useNavigate()
 
   const [tech, setTech] = useState<TechnologyDetail | null>(null)
@@ -73,56 +71,100 @@ export function QAReviewPage() {
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [iframeError, setIframeError] = useState(false)
+  const [hasDirtyFields, setHasDirtyFields] = useState(false)
 
   // Field states keyed by field name
   const [fieldStates, setFieldStates] = useState<Record<string, FieldState>>({})
 
-  // Sibling navigation
+  // Conflicts for this technology
+  const [conflicts, setConflicts] = useState<QAConflict[]>([])
+
+  // Sample-backed navigation
+  const [sampleIds, setSampleIds] = useState<number[]>([])
+  const [sampleIndex, setSampleIndex] = useState(-1)
+
+  // Legacy UUID-based sibling navigation
   const [siblings, setSiblings] = useState<string[]>([])
   const [siblingIndex, setSiblingIndex] = useState(-1)
 
+  const initFieldStates = useCallback((data: TechnologyDetail) => {
+    const rawData = data.raw_data || {}
+    const states: Record<string, FieldState> = {}
+    for (const key of Object.keys(rawData)) {
+      if (!SKIP_FIELDS.has(key)) {
+        states[key] = { status: 'unchecked', editedValue: formatValue(rawData[key]) }
+      }
+    }
+    setFieldStates(states)
+    setHasDirtyFields(false)
+  }, [])
+
   const fetchTech = useCallback(async () => {
-    if (!uuid) return
     setLoading(true)
     setError(null)
+    setIframeError(false)
     try {
-      const data = await technologiesApi.get(uuid)
-      setTech(data)
-      // Initialize field states
-      const rawData = data.raw_data || {}
-      const states: Record<string, FieldState> = {}
-      for (const key of Object.keys(rawData)) {
-        if (!SKIP_FIELDS.has(key)) {
-          states[key] = { status: 'unchecked', editedValue: formatValue(rawData[key]) }
-        }
+      let data: TechnologyDetail
+      if (dbId) {
+        data = await technologiesApi.getByDbId(parseInt(dbId, 10))
+      } else if (uuid) {
+        data = await technologiesApi.get(uuid)
+      } else {
+        return
       }
-      setFieldStates(states)
+      setTech(data)
+      initFieldStates(data)
+
+      // Load conflicts for this university
+      if (data.university) {
+        qaApi.getConflicts(data.university).then(setConflicts).catch(() => {})
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load')
     } finally {
       setLoading(false)
     }
-  }, [uuid])
+  }, [uuid, dbId, initFieldStates])
 
   useEffect(() => {
     fetchTech()
   }, [fetchTech])
 
-  // Load sibling list from session storage for prev/next nav
+  // Load sample IDs from session storage for prev/next nav
   useEffect(() => {
-    const stored = sessionStorage.getItem('qa-siblings')
-    if (stored) {
-      const list = JSON.parse(stored) as string[]
-      setSiblings(list)
-      if (uuid) setSiblingIndex(list.indexOf(uuid))
+    const storedIds = sessionStorage.getItem('qa-sample-ids')
+    if (storedIds && dbId) {
+      const ids = JSON.parse(storedIds) as number[]
+      setSampleIds(ids)
+      setSampleIndex(ids.indexOf(parseInt(dbId, 10)))
+    } else {
+      // Legacy UUID-based siblings
+      const stored = sessionStorage.getItem('qa-siblings')
+      if (stored && uuid) {
+        const list = JSON.parse(stored) as string[]
+        setSiblings(list)
+        setSiblingIndex(list.indexOf(uuid))
+      }
     }
-  }, [uuid])
+  }, [uuid, dbId])
+
+  // Beforeunload handler for unsaved changes
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasDirtyFields) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasDirtyFields])
 
   const updateFieldStatus = (key: string, status: FieldStatus) => {
     setFieldStates((prev) => ({
       ...prev,
       [key]: { ...prev[key], status },
     }))
+    if (status === 'incorrect') setHasDirtyFields(true)
   }
 
   const updateFieldValue = (key: string, value: string) => {
@@ -130,17 +172,17 @@ export function QAReviewPage() {
       ...prev,
       [key]: { ...prev[key], editedValue: value },
     }))
+    setHasDirtyFields(true)
   }
 
   const handleSave = async () => {
-    if (!uuid || !tech) return
+    const techUuid = tech?.uuid
+    if (!techUuid || !tech) return
 
-    // Collect fields marked incorrect with edited values
     const updates: Record<string, unknown> = {}
     for (const [key, state] of Object.entries(fieldStates)) {
       if (state.status === 'incorrect') {
         const originalValue = tech.raw_data?.[key]
-        // Try to preserve the original type
         if (Array.isArray(originalValue) && !isComplexValue(originalValue)) {
           updates[key] = state.editedValue.split('\n').filter(Boolean)
         } else {
@@ -158,9 +200,8 @@ export function QAReviewPage() {
     setSaving(true)
     setSaveMessage(null)
     try {
-      const updated = await technologiesApi.patchRawData(uuid, updates)
+      const updated = await technologiesApi.patchRawData(techUuid, updates)
       setTech(updated)
-      // Reset corrected fields to "correct" status
       setFieldStates((prev) => {
         const next = { ...prev }
         for (const key of Object.keys(updates)) {
@@ -170,6 +211,7 @@ export function QAReviewPage() {
         }
         return next
       })
+      setHasDirtyFields(false)
       setSaveMessage(`Saved ${Object.keys(updates).length} correction(s)`)
     } catch (e: unknown) {
       setSaveMessage(`Error: ${e instanceof Error ? e.message : 'Save failed'}`)
@@ -179,10 +221,28 @@ export function QAReviewPage() {
     }
   }
 
-  const navigateSibling = (direction: -1 | 1) => {
-    const newIndex = siblingIndex + direction
-    if (newIndex >= 0 && newIndex < siblings.length) {
-      navigate(`/qa/${siblings[newIndex]}`)
+  const navigateSample = (direction: -1 | 1) => {
+    if (sampleIds.length > 0) {
+      const newIndex = sampleIndex + direction
+      if (newIndex >= 0 && newIndex < sampleIds.length) {
+        navigate(`/qa/by-id/${sampleIds[newIndex]}`)
+      }
+    } else if (siblings.length > 0) {
+      const newIndex = siblingIndex + direction
+      if (newIndex >= 0 && newIndex < siblings.length) {
+        navigate(`/qa/${siblings[newIndex]}`)
+      }
+    }
+  }
+
+  const handleResolveConflict = async (conflictId: number, resolution: 'keep_correction' | 'accept_new') => {
+    try {
+      await qaApi.resolveConflict(conflictId, resolution)
+      setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
+      // Reload tech to get updated raw_data
+      fetchTech()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to resolve conflict')
     }
   }
 
@@ -213,6 +273,14 @@ export function QAReviewPage() {
   const checkedCount = Object.values(fieldStates).filter((s) => s.status !== 'unchecked').length
   const incorrectCount = Object.values(fieldStates).filter((s) => s.status === 'incorrect').length
 
+  // Conflicts for this specific technology (by UUID match on tech_id)
+  // We need to match by technology DB id - which isn't in TechnologyDetail
+  // But we loaded conflicts for the whole university, so filter is approximate
+  const techConflicts = conflicts // shown per-university for now
+
+  const navLength = sampleIds.length || siblings.length
+  const navIndex = sampleIds.length > 0 ? sampleIndex : siblingIndex
+
   return (
     <div className="flex flex-col h-full">
       <Header title="QA Review" />
@@ -230,21 +298,21 @@ export function QAReviewPage() {
             {checkedCount}/{fieldKeys.length} reviewed
             {incorrectCount > 0 && ` (${incorrectCount} corrected)`}
           </span>
-          {siblings.length > 0 && (
+          {navLength > 0 && (
             <>
               <button
-                onClick={() => navigateSibling(-1)}
-                disabled={siblingIndex <= 0}
+                onClick={() => navigateSample(-1)}
+                disabled={navIndex <= 0}
                 className="px-2 py-1 text-xs border rounded disabled:opacity-30 hover:bg-gray-50"
               >
                 Prev
               </button>
               <span className="text-xs text-gray-400">
-                {siblingIndex + 1}/{siblings.length}
+                {navIndex + 1}/{navLength}
               </span>
               <button
-                onClick={() => navigateSibling(1)}
-                disabled={siblingIndex >= siblings.length - 1}
+                onClick={() => navigateSample(1)}
+                disabled={navIndex >= navLength - 1}
                 className="px-2 py-1 text-xs border rounded disabled:opacity-30 hover:bg-gray-50"
               >
                 Next
@@ -259,6 +327,54 @@ export function QAReviewPage() {
           </button>
         </div>
       </div>
+
+      {/* Conflict banner */}
+      {techConflicts.length > 0 && (
+        <div className="px-6 py-2 bg-amber-50 border-b border-amber-200">
+          <p className="text-xs font-medium text-amber-800">
+            {techConflicts.length} unresolved conflict(s) for {tech.university}
+          </p>
+          <div className="mt-2 space-y-2">
+            {techConflicts.map((c) => (
+              <div key={c.id} className="bg-white rounded border border-amber-200 p-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-gray-700">
+                    {formatFieldName(c.field_name)} (tech #{c.technology_id})
+                  </span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleResolveConflict(c.id, 'keep_correction')}
+                      className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+                    >
+                      Keep correction
+                    </button>
+                    <button
+                      onClick={() => handleResolveConflict(c.id, 'accept_new')}
+                      className="px-2 py-0.5 text-xs bg-amber-50 text-amber-700 rounded hover:bg-amber-100"
+                    >
+                      Accept new
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-gray-500">Corrected:</span>
+                    <pre className="mt-0.5 bg-blue-50 rounded p-1 whitespace-pre-wrap text-xs max-h-16 overflow-y-auto">
+                      {formatValue(c.corrected_value)}
+                    </pre>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">New scrape:</span>
+                    <pre className="mt-0.5 bg-amber-50 rounded p-1 whitespace-pre-wrap text-xs max-h-16 overflow-y-auto">
+                      {formatValue(c.new_scraped_value)}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main content: side-by-side */}
       <div className="flex flex-1 min-h-0">

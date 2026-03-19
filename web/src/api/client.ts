@@ -12,6 +12,10 @@ import type {
   PaginatedOpportunities,
   OpportunityFilters,
   OpportunityStats,
+  UniversityQAStatus,
+  QASample,
+  QAConflict,
+  QARefreshResult,
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -100,6 +104,8 @@ export const technologiesApi = {
 
   get: (uuid: string) => fetchJson<TechnologyDetail>(`/technologies/${uuid}`),
 
+  getByDbId: (id: number) => fetchJson<TechnologyDetail>(`/technologies/by-id/${id}`),
+
   getTaxonomy: () => fetchJson<TaxonomyField[]>('/taxonomy'),
 
   patchRawData: async (uuid: string, updates: Record<string, unknown>) => {
@@ -118,9 +124,33 @@ export const technologiesApi = {
     `${API_BASE}/proxy?url=${encodeURIComponent(url)}`,
 }
 
-// Opportunities API
+// Mutation helpers
 async function postJson<T>(endpoint: string): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' })
+
+  if (!response.ok) {
+    throw new ApiError(response.status, `API error: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+async function postJsonWithBody<T>(endpoint: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    throw new ApiError(response.status, `API error: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+async function putJson<T>(endpoint: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, { method: 'PUT' })
 
   if (!response.ok) {
     throw new ApiError(response.status, `API error: ${response.statusText}`)
@@ -140,6 +170,26 @@ export const opportunitiesApi = {
   assess: (uuid: string) => postJson<OpportunitySummary>(`/opportunities/${uuid}/assess`),
 
   getStats: () => fetchJson<OpportunityStats>('/opportunities/stats'),
+}
+
+// QA API
+export const qaApi = {
+  getUniversities: () => fetchJson<UniversityQAStatus[]>('/qa/universities'),
+
+  approve: (code: string) => putJson<{ status: string }>(`/qa/universities/${code}/approve`),
+
+  unapprove: (code: string) => putJson<{ status: string }>(`/qa/universities/${code}/unapprove`),
+
+  getSample: (university: string) => fetchJson<QASample>(`/qa/samples/${university}`),
+
+  createSample: (university: string) => postJson<QASample>(`/qa/samples/${university}`),
+
+  refreshSample: (university: string) => postJson<QARefreshResult>(`/qa/samples/${university}/refresh`),
+
+  getConflicts: (university: string) => fetchJson<QAConflict[]>(`/qa/conflicts/${university}`),
+
+  resolveConflict: (id: number, resolution: 'keep_correction' | 'accept_new') =>
+    postJsonWithBody<{ resolved: boolean }>(`/qa/conflicts/${id}/resolve`, { resolution }),
 }
 
 export { ApiError }
