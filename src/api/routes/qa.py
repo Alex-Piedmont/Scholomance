@@ -42,22 +42,41 @@ class ConflictResolution(BaseModel):
 @router.get("/universities", response_model=list[UniversityQAItem])
 def list_qa_universities():
     """List all universities from SCRAPERS registry with QA status and tech counts."""
-    # Seed from completed_scrapers.md if table is empty
-    statuses = db.get_all_qa_statuses()
-    if not statuses:
-        db.set_qa_status("buffalo", "approved")
-        statuses = db.get_all_qa_statuses()
+    from sqlalchemy import func as sqlfunc
 
-    conflict_counts = db.count_conflicts_by_university()
+    with db.get_session() as session:
+        # Seed from completed_scrapers.md if table is empty
+        from ...database import UniversityQAStatus, Technology, QAConflict
+        status_count = session.query(sqlfunc.count(UniversityQAStatus.id)).scalar()
+        if not status_count:
+            session.add(UniversityQAStatus(university="buffalo", status="approved", approved_at=datetime.now(timezone.utc)))
+            session.flush()
+
+        # All three queries in one session
+        statuses = {
+            row.university: row.status
+            for row in session.query(UniversityQAStatus).all()
+        }
+
+        tech_counts = dict(
+            session.query(Technology.university, sqlfunc.count(Technology.id))
+            .group_by(Technology.university)
+            .all()
+        )
+
+        conflict_counts = dict(
+            session.query(Technology.university, sqlfunc.count(QAConflict.id))
+            .join(Technology, QAConflict.technology_id == Technology.id)
+            .group_by(Technology.university)
+            .all()
+        )
 
     result = []
     for code in SCRAPERS:
-        count = db.count_technologies(university=code)
-        qa = statuses.get(code)
         result.append(UniversityQAItem(
             university=code,
-            count=count,
-            status=qa.status if qa else "pending",
+            count=tech_counts.get(code, 0),
+            status=statuses.get(code, "pending"),
             conflict_count=conflict_counts.get(code, 0),
         ))
 

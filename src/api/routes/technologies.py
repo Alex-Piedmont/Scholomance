@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -268,15 +268,56 @@ class RawDataUpdate(BaseModel):
 @router.patch("/technologies/{uuid}/raw-data", response_model=TechnologyDetail)
 def patch_raw_data(uuid: UUID, body: RawDataUpdate):
     """Update specific fields in a technology's raw_data."""
-    # Record corrections BEFORE updating raw_data so we capture the original values
-    with db.get_session() as session:
-        tech_for_orig = session.query(Technology).filter(Technology.uuid == str(uuid)).first()
-        if tech_for_orig and body.updates:
-            db.record_corrections(tech_for_orig.id, body.updates)
+    from ...database import QACorrection
+    from sqlalchemy.orm import make_transient
 
-    tech = db.update_raw_data_fields(str(uuid), body.updates)
-    if not tech:
-        raise HTTPException(status_code=404, detail="Technology not found")
+    with db.get_session() as session:
+        tech = session.query(Technology).filter(Technology.uuid == str(uuid)).first()
+        if not tech:
+            raise HTTPException(status_code=404, detail="Technology not found")
+
+        # Record corrections BEFORE updating raw_data
+        if body.updates:
+            original_raw = dict(tech.raw_data or {})
+            for field_name, corrected_value in body.updates.items():
+                if corrected_value is None:
+                    continue  # deletions aren't corrections
+                existing = (
+                    session.query(QACorrection)
+                    .filter(QACorrection.technology_id == tech.id, QACorrection.field_name == field_name)
+                    .first()
+                )
+                if existing:
+                    existing.corrected_value = corrected_value
+                    existing.corrected_at = datetime.now(timezone.utc)
+                else:
+                    session.add(QACorrection(
+                        technology_id=tech.id,
+                        field_name=field_name,
+                        corrected_value=corrected_value,
+                        original_scraped_value=original_raw.get(field_name),
+                    ))
+
+        # Update raw_data
+        current_raw_data = dict(tech.raw_data or {})
+        for key, value in body.updates.items():
+            if value is None:
+                current_raw_data.pop(key, None)
+            else:
+                current_raw_data[key] = value
+        tech.raw_data = current_raw_data
+        tech.updated_at = datetime.now(timezone.utc)
+
+        session.flush()
+        session.refresh(tech)
+        _ = (tech.id, tech.uuid, tech.university, tech.tech_id, tech.title,
+             tech.description, tech.url, tech.raw_data, tech.updated_at,
+             tech.top_field, tech.subfield, tech.patent_geography, tech.keywords,
+             tech.classification_status, tech.classification_confidence,
+             tech.patent_status, tech.patent_status_confidence,
+             tech.patent_status_source, tech.scraped_at, tech.first_seen)
+        session.expunge(tech)
+        make_transient(tech)
 
     return TechnologyDetail(
         uuid=str(tech.uuid),
