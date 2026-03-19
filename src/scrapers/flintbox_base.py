@@ -222,11 +222,37 @@ class FlintboxScraper(BaseScraper):
 
     # ── Item parsing ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _clean_title(raw_title: str) -> str:
+        """Strip leading reference number prefixes like '11405 - ', '2025-046:', '2026-056 Title'."""
+        # Try separator-based first: "11405 - ", "D-1097:", "2025-046:"
+        # The separator [-–—:] must be followed by a space (not a digit), to avoid
+        # matching the hyphen inside "2026-056 Title" as a separator.
+        cleaned = re.sub(
+            r"^[A-Z]{0,3}-?\d[\d-]*\s*[-–—:]\s+",
+            "", raw_title,
+        ).strip()
+        if cleaned and cleaned != raw_title:
+            return cleaned
+        # Try colon with no trailing space: "2025-046:Title"
+        cleaned = re.sub(
+            r"^[A-Z]{0,3}-?\d[\d-]*:",
+            "", raw_title,
+        ).strip()
+        if cleaned and cleaned != raw_title:
+            return cleaned
+        # Try space-based year-number prefix: "2026-056 Title", "22-067 DiscoBand"
+        cleaned = re.sub(
+            r"^\d{2,4}-\d+\s+",
+            "", raw_title,
+        ).strip()
+        return cleaned or raw_title
+
     def _parse_api_item(self, item: dict) -> Optional[Technology]:
         """Parse a technology item from the API listing (no detail fetch)."""
         try:
             attrs = item.get("attributes", {})
-            title = attrs.get("name", "").strip()
+            title = self._clean_title(attrs.get("name", "").strip())
             if not title:
                 return None
 
@@ -268,7 +294,7 @@ class FlintboxScraper(BaseScraper):
 
             detail = await self.scrape_technology_detail(uuid)
 
-            title = attrs.get("name", "").strip()
+            title = self._clean_title(attrs.get("name", "").strip())
             if not title:
                 return None
 
