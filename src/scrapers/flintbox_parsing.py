@@ -80,6 +80,9 @@ def clean_html_field(raw: str) -> str:
             raw = soup.get_text(separator="")
     raw = raw.replace('\xa0', ' ').replace('&nbsp;', ' ')
     raw = re.sub(r'[·•]\s*', '- ', raw)
+    # Collapse single newlines (line-wrapping artifacts) to spaces,
+    # but preserve double newlines (paragraph boundaries from <p> tags)
+    raw = re.sub(r'(?<!\n)\n(?!\n)', ' ', raw)
     raw = re.sub(r'[ \t]+', ' ', raw)
     lines = [line.strip() for line in raw.split('\n')]
     return '\n'.join(line for line in lines if line)

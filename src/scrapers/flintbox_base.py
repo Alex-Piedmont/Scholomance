@@ -346,11 +346,21 @@ class FlintboxScraper(BaseScraper):
         # IP fields
         ip_status_val = detail.get("ipStatus")
         ip_date_val = detail.get("ipDate")
+        ip_number_val = detail.get("ipNumber") or ""
+
+        # Detect status text in ip_number (e.g. "Provisional Application Filed")
+        # Real patent numbers contain digits; status text typically doesn't
+        if ip_number_val and not re.search(r"\d", ip_number_val):
+            # It's status text, not a number — merge into ip_status
+            if not ip_status_val:
+                ip_status_val = ip_number_val
+            ip_number_val = ""
+
         if ip_status_val and ip_date_val:
             raw_data["ip_status"] = f"{ip_status_val} — {ip_date_val}"
         else:
             raw_data["ip_status"] = ip_status_val
-        raw_data["ip_number"] = detail.get("ipNumber")
+        raw_data["ip_number"] = ip_number_val or None
         raw_data["ip_url"] = detail.get("ipUrl")
         raw_data["ip_date"] = ip_date_val
         raw_data["publications"] = detail.get("publications")
