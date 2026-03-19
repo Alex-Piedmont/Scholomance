@@ -218,8 +218,9 @@ class JHUScraper(BaseScraper):
             description = (
                 sections.get("short_description")
                 or sections.get("abstract")
-                or truncated_description.strip()
-                or full_description[:2000].strip()
+                or sections.get("background")
+                or html_mod.unescape(truncated_description).strip()
+                or html_mod.unescape(full_description[:2000]).strip()
             )
 
             # Parse categories from finalPathCategories
@@ -290,19 +291,19 @@ class JHUScraper(BaseScraper):
         text = html_mod.unescape(text)
 
         section_patterns = [
-            ("short_description", r"SHORT\s+DESCRIPTION"),
-            ("abstract", r"ABSTRACT"),
-            ("background", r"BACKGROUND"),
-            ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
-            ("development_stage", r"DEVELOPMENT\s+STAGE"),
-            ("applications", r"APPLICATIONS"),
-            ("advantages", r"ADVANTAGES"),
-            ("publications", r"PUBLICATIONS"),
-            ("ip_status", r"IP\s+STATUS"),
-            ("benefit", r"BENEFITS?"),
-            ("inventors_section", r"INVENTORS?"),
-            ("technical_problem", r"TECHNICAL\s+PROBLEM"),
-            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
+            ("short_description", r"(?:SHORT\s+DESCRIPTION|NOVELTY):?"),
+            ("abstract", r"ABSTRACT:?"),
+            ("background", r"(?:BACKGROUND|UNMET\s+NEED):?"),
+            ("market_opportunity", r"MARKET\s+(?:OPPORTUNITY|APPLICATIONS?):?"),
+            ("development_stage", r"(?:DEVELOPMENT\s+STAGE|STAGE\s+OF\s+DEVELOPMENT):?"),
+            ("applications", r"APPLICATIONS:?"),
+            ("advantages", r"(?:ADVANTAGES|VALUE\s+PROPOSITION):?"),
+            ("publications", r"PUBLICATION(?:\(S\)|S)?:?"),
+            ("ip_status", r"(?:IP\s+STATUS|PATENT\s+(?:STATUS|INFORMATION|DETAILS)):?"),
+            ("benefit", r"BENEFITS?:?"),
+            ("inventors_section", r"INVENTORS?:?"),
+            ("technical_problem", r"(?:TECHNICAL\s+PROBLEM|PROBLEM\s+STATEMENT):?"),
+            ("solution", r"(?:TECHNICAL\s+)?(?:SOLUTION|TECHNOLOGY\s+(?:OVERVIEW|SOLUTION)):?"),
         ]
 
         all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
