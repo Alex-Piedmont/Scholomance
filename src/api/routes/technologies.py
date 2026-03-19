@@ -268,13 +268,15 @@ class RawDataUpdate(BaseModel):
 @router.patch("/technologies/{uuid}/raw-data", response_model=TechnologyDetail)
 def patch_raw_data(uuid: UUID, body: RawDataUpdate):
     """Update specific fields in a technology's raw_data."""
+    # Record corrections BEFORE updating raw_data so we capture the original values
+    with db.get_session() as session:
+        tech_for_orig = session.query(Technology).filter(Technology.uuid == str(uuid)).first()
+        if tech_for_orig and body.updates:
+            db.record_corrections(tech_for_orig.id, body.updates)
+
     tech = db.update_raw_data_fields(str(uuid), body.updates)
     if not tech:
         raise HTTPException(status_code=404, detail="Technology not found")
-
-    # Record corrections in the QA ledger
-    if tech.id and body.updates:
-        db.record_corrections(tech.id, body.updates)
 
     return TechnologyDetail(
         uuid=str(tech.uuid),

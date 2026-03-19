@@ -274,7 +274,7 @@ class FlintboxScraper(BaseScraper):
 
             tech_id = item.get("id", "")
             key_points = [
-                html_mod.unescape(attrs[f"keyPoint{i}"].strip())
+                re.sub(r"<[^>]+>", "", html_mod.unescape(attrs[f"keyPoint{i}"].strip())).strip()
                 for i in range(1, 4)
                 if attrs.get(f"keyPoint{i}")
             ]
@@ -383,7 +383,17 @@ class FlintboxScraper(BaseScraper):
         # Researchers, documents, contacts, tags
         raw_data["researchers"] = detail.get("_members")
         raw_data["documents"] = detail.get("_documents")
-        raw_data["contacts"] = detail.get("_contacts")
+        raw_contacts = detail.get("_contacts")
+        if raw_contacts and isinstance(raw_contacts, list):
+            # Flatten contact dicts to "name\nemail\nphone" strings
+            parts = []
+            for c in raw_contacts:
+                lines = [v for v in [c.get("name"), c.get("email"), c.get("phone")] if v]
+                if lines:
+                    parts.append("\n".join(lines))
+            raw_data["contacts"] = "\n\n".join(parts) if parts else None
+        else:
+            raw_data["contacts"] = raw_contacts
         raw_data["flintbox_tags"] = detail.get("_tags")
 
         return parsed
@@ -421,19 +431,19 @@ class FlintboxScraper(BaseScraper):
 
     @staticmethod
     def _extract_publication_links(raw_data: dict) -> None:
-        """Extract structured hyperlinks from publication HTML fields."""
+        """Extract hyperlinks from publication HTML fields and flatten to text."""
         for pub_key in ("publications", "publications_html"):
             pub_raw = raw_data.get(pub_key)
             if pub_raw and isinstance(pub_raw, str) and "<a" in pub_raw.lower():
                 pub_soup = BeautifulSoup(pub_raw, "html.parser")
-                pub_links = []
+                pub_lines = []
                 for a_tag in pub_soup.find_all("a", href=True):
                     link_text = a_tag.get_text(strip=True)
                     link_url = a_tag["href"]
-                    if link_text or link_url:
-                        pub_links.append({"text": link_text or link_url, "url": link_url})
-                if pub_links:
-                    raw_data["publications"] = pub_links
+                    if link_url:
+                        pub_lines.append(f"{link_url}\n{link_text or link_url}")
+                if pub_lines:
+                    raw_data["publications"] = "\n".join(pub_lines)
                     break
 
     @staticmethod

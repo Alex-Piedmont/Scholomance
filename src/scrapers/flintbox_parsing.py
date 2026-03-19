@@ -19,27 +19,22 @@ _METADATA_PATTERNS = re.compile(
 
 _SECTION_MARKERS = re.compile(
     r"(?:Market\s+Applications?\s*:?|Features,?\s+Benefits?\s*(?:&|and)\s*Advantages?\s*:?|"
-    r"Benefits?\s*:?|Reference\s+Number\s*:?|"
+    r"Benefits?\s*:|Reference\s+Number\s*:?|"
     r"Technology\s+(?:Overview|Applications?|Advantages?)\s*:?|"
-    r"Potential\s+Applications?\s*:?|Advantages?\s*:?|"
+    r"Potential\s+Applications?\s*:?|Advantages?\s*:|"
     r"Background\s*(?:&amp;|&)\s*Unmet\s+Need\s*:?|"
-    r"Publications?\s*:?|Patents?\s*:?|"
-    r"Technology\s*:?(?!\s+(?:Overview|Applications?|Advantages?)))",
+    r"Publications?\s*:|Patents?\s*:|"
+    r"Technology\s*:(?!\s*(?:Overview|Applications?|Advantages?)))",
     re.IGNORECASE,
 )
 
 _HEADING_STRIP_RE = re.compile(
     r"\s*(?:"
     r"Background\s*(?:&amp;|&|and)\s*Unmet\s+Need"
-    r"|Benefits?"
     r"|Features,?\s+Benefits?\s*(?:&amp;|&|and)\s*Advantages?"
-    r"|Advantages?"
     r"|Market\s+Applications?"
     r"|Potential\s+Applications?"
     r"|Technology\s+(?:Overview|Applications?|Advantages?)"
-    r"|Technology"
-    r"|Publications?"
-    r"|Patents?"
     r")\s*:?\s*$",
     re.IGNORECASE,
 )
@@ -76,7 +71,7 @@ def clean_html_field(raw: str) -> str:
         soup = BeautifulSoup(raw, "html.parser")
         items = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
         if items:
-            raw = "\n".join(items)
+            raw = "\n".join(f"- {item}" for item in items)
         else:
             for br_tag in soup.find_all("br"):
                 br_tag.replace_with("\n")
@@ -114,20 +109,20 @@ def parse_embedded_sections(abstract_html: str) -> dict:
         + r"(?:"
         + r"(?P<abstract>Abstract\s*:\s*)"
         + r"|(?P<market>(?:Market|Technology|Potential)\s+Applications?\s*:?\s*)"
-        + r"|(?P<solution>Technology\s*:?\s*(?!\s*(?:Overview|Applications?|Advantages?)))"
+        + r"|(?P<solution>Technology\s*:\s*(?!\s*(?:Overview|Applications?|Advantages?)))"
         + r"|(?P<benefit>"
         +   r"Features,?\s+Benefits?\s*(?:&amp;|&|and)\s*Advantages?\s*:?\s*"
         +   r"|Technology\s+Advantages?\s*:?\s*"
-        +   r"|Advantages?\s*:?\s*"
+        +   r"|Advantages?\s*:\s*"
         + r")"
         + r"|(?P<background>Background\s*(?:&amp;|&)\s*Unmet\s+Need\s*:?\s*)"
         + r"|(?P<overview>Technology\s+Overview\s*:?\s*)"
         + r"|(?P<ip>Intellectual\s+Property\s*:?\s*)"
-        + r"|(?P<patents>(?<=\>)Patents?\s*:?\s*)"
-        + r"|(?P<pubs>Publications?\s*:?\s*)"
+        + r"|(?P<patents>(?<=\>)Patents?\s*:\s*)"
+        + r"|(?P<pubs>Publications?\s*:\s*)"
         + r"|(?P<dev>Development(?:al)?\s+Stage\s*:?\s*)"
-        + r"|(?P<researcher>Researchers?\s*\(?\s*s?\s*\)?\s*:?\s*)"
-        + r"|(?P<keywords>Key\s*[Ww]ords?\s*:?\s*)"
+        + r"|(?P<researcher>Researchers?\s*\(?\s*s?\s*\)?\s*:\s*)"
+        + r"|(?P<keywords>Key\s*[Ww]ords?\s*:\s*)"
         + r"|(?P<refnum>Reference\s+Number\s*:?\s*)"
         + r")"
         + tag,
@@ -203,7 +198,7 @@ def parse_embedded_sections(abstract_html: str) -> dict:
         soup = BeautifulSoup(raw, "html.parser")
         items = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
         if items:
-            result[key] = "\n".join(items)
+            result[key] = "\n".join(f"- {item}" for item in items)
         else:
             result[key] = soup.get_text(separator=" ", strip=True)
         result[key] = result[key].replace('\xa0', ' ').replace('&nbsp;', ' ')
