@@ -288,6 +288,21 @@ class UCSystemScraper(BaseScraper):
             if description:
                 description = re.sub(r'[ \t]+', ' ', description).strip()
 
+            # De-duplicate: skip fields that repeat description content
+            short_desc = detail.get("short_description") or None
+            full_desc = detail.get("full_description") or None
+            desc_norm = re.sub(r'\s+', ' ', description).strip() if description else ""
+            if short_desc and desc_norm:
+                sd_norm = re.sub(r'\s+', ' ', short_desc).strip()
+                # Drop if either is a substring, or if first 100 chars match (meta tags
+                # are near-duplicates with minor whitespace/punctuation differences)
+                if sd_norm in desc_norm or desc_norm in sd_norm or sd_norm[:100] == desc_norm[:100]:
+                    short_desc = None
+            if full_desc and desc_norm:
+                fd_norm = re.sub(r'\s+', ' ', full_desc).strip()
+                if fd_norm in desc_norm or desc_norm in fd_norm:
+                    full_desc = None
+
             # Get campus info
             campus = detail.get("campus", "")
             categories = detail.get("categories", [])
@@ -300,9 +315,9 @@ class UCSystemScraper(BaseScraper):
                 "campus": campus,
                 "categories": categories,
                 "case_number": detail.get("case_number"),
-                "short_description": detail.get("short_description"),
+                "short_description": short_desc,
                 "background": detail.get("background"),
-                "full_description": detail.get("full_description"),
+                "full_description": full_desc,
                 "applications": detail.get("applications"),
                 "advantages": detail.get("advantages"),
                 "ip_status": detail.get("ip_status"),
