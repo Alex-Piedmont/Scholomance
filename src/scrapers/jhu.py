@@ -307,7 +307,9 @@ class JHUScraper(BaseScraper):
         ]
 
         all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
-        header_re = re.compile(rf"\s*(?:{all_headers})\s*", re.IGNORECASE)
+        # Require 2+ whitespace chars (or start of text) before a header to avoid
+        # matching mid-sentence words like "research applications"
+        header_re = re.compile(rf"(?:^|\s{{2,}})(?:{all_headers})\s*", re.IGNORECASE)
 
         sections = {}
         parts = header_re.split(text)
