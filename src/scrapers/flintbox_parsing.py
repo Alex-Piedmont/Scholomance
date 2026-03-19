@@ -68,6 +68,10 @@ def clean_html_field(raw: str) -> str:
     to newlines, and strips non-breaking spaces and bullet markers.
     """
     if "<" in raw:
+        # Collapse line-wrapping newlines in the source HTML before parsing.
+        # These are artifacts of the API wrapping text at ~80 chars inside tags.
+        # Real line breaks come from <br> and <p> tags, which BeautifulSoup handles.
+        raw = re.sub(r'(?<=[a-z,;])\n(?=[a-z])', ' ', raw)
         soup = BeautifulSoup(raw, "html.parser")
         items = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
         if items:
@@ -80,9 +84,6 @@ def clean_html_field(raw: str) -> str:
             raw = soup.get_text(separator="")
     raw = raw.replace('\xa0', ' ').replace('&nbsp;', ' ')
     raw = re.sub(r'[·•]\s*', '- ', raw)
-    # Collapse single newlines (line-wrapping artifacts) to spaces,
-    # but preserve double newlines (paragraph boundaries from <p> tags)
-    raw = re.sub(r'(?<!\n)\n(?!\n)', ' ', raw)
     raw = re.sub(r'[ \t]+', ' ', raw)
     lines = [line.strip() for line in raw.split('\n')]
     return '\n'.join(line for line in lines if line)
