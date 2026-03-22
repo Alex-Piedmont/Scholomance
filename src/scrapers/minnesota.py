@@ -248,6 +248,14 @@ class MinnesotaScraper(TechPublisherScraper):
                 if description_parts:
                     detail["full_description"] = "\n\n".join(description_parts)
 
+            # Remove 'other' if it duplicates abstract content
+            if detail.get("other") and detail.get("abstract"):
+                other_text = re.sub(r"\*\*[^*]+\*\*\s*", "", detail["other"])
+                other_norm = re.sub(r"\s+", " ", other_text).strip()
+                abstract_norm = re.sub(r"\s+", " ", detail["abstract"]).strip()
+                if other_norm in abstract_norm or abstract_norm in other_norm:
+                    del detail["other"]
+
             # Strip boilerplate from all text fields
             _BOILERPLATE = re.compile(
                 r"(?:\n\n|\A)"
