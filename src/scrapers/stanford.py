@@ -109,8 +109,8 @@ class StanfordScraper(BaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
+                    if detail.get("description") and not tech.description:
+                        tech.description = detail["description"]
                     if detail.get("inventors"):
                         tech.raw_data["inventors"] = detail["inventors"]
                     if detail.get("applications"):
@@ -246,7 +246,6 @@ class StanfordScraper(BaseScraper):
                         "description": description,
                         "url": full_url,
                         "keywords": keywords,
-                        "source_page": url,
                     }
 
                     tech = Technology(
@@ -296,7 +295,7 @@ class StanfordScraper(BaseScraper):
             # Description from docket__text
             desc_div = soup.select_one("div.docket__text")
             if desc_div:
-                detail["description_html"] = str(desc_div)
+                # description_html omitted — duplicate of description with HTML markup
 
                 # Stage of Development/Research from bold or strong label in description
                 stage_pattern = re.compile(r"Stage\s+of\s+(Development|Research)", re.I)
@@ -366,8 +365,8 @@ class StanfordScraper(BaseScraper):
                     else:
                         stage_label.decompose()
 
-                # Build full_description after stage extraction (so stage text is excluded)
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+                # Extract clean description text (after stage extraction removes that section)
+                detail["description"] = desc_div.get_text(separator="\n", strip=True)
 
                 # Related portfolio: links to other /technology/ pages within description
                 related = []
