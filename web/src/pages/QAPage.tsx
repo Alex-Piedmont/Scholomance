@@ -132,7 +132,7 @@ export function QAPage() {
               >
                 <option value="">Choose a university...</option>
                 {filteredUniversities
-                  .sort((a, b) => a.university.localeCompare(b.university))
+                  .sort((a, b) => b.count - a.count || a.university.localeCompare(b.university))
                   .map((u) => (
                     <option key={u.university} value={u.university}>
                       {u.university} ({u.count} techs)
