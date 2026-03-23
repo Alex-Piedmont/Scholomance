@@ -31,6 +31,7 @@
 - [ ] If keeping APScheduler: ensure it's installed in all environments, add CI test coverage
 - [ ] If migrating to external cron: refactor scheduler.py to be a simple CLI entrypoint that cron calls, remove APScheduler dependency
 - [ ] The `migrate` CLI command references Alembic which we removed — either remove the command or implement a simpler migration approach
+- [ ] Parallelize multi-university scrapes with `asyncio.gather()` + configurable `Semaphore` concurrency limit (scrapers hit different domains so no rate-limit conflict; cap concurrent Playwright instances to control memory)
 
 ### Test Suite Health
 - [ ] Consider renaming test_phase3_scrapers.py → test_gatech_uga_scrapers.py for clarity

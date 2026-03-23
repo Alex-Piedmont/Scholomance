@@ -416,9 +416,26 @@ class FlintboxScraper(BaseScraper):
         self._extract_publication_links(raw_data)
         self._clean_raw_data_fields(raw_data)
 
-        # Researchers, documents, contacts, tags
-        raw_data["researchers"] = detail.get("_members")
-        raw_data["documents"] = detail.get("_documents")
+        # Researchers — flatten to newline-separated names (like contacts)
+        raw_members = detail.get("_members")
+        if raw_members and isinstance(raw_members, list):
+            names = [m["name"] for m in raw_members if m.get("name")]
+            raw_data["researchers"] = "\n".join(names) if names else None
+        else:
+            raw_data["researchers"] = raw_members
+
+        # Documents — flatten to "name: url" strings
+        raw_docs = detail.get("_documents")
+        if raw_docs and isinstance(raw_docs, list):
+            lines = []
+            for d in raw_docs:
+                name = d.get("name", "")
+                url = d.get("url", "")
+                if url:
+                    lines.append(f"{name}: {url}" if name else url)
+            raw_data["documents"] = "\n".join(lines) if lines else None
+        else:
+            raw_data["documents"] = raw_docs
         raw_contacts = detail.get("_contacts")
         if raw_contacts and isinstance(raw_contacts, list):
             # Flatten contact dicts to "name\nemail\nphone" strings
@@ -492,6 +509,16 @@ class FlintboxScraper(BaseScraper):
             if not raw or not isinstance(raw, str):
                 continue
             raw_data[key] = clean_html_field(raw)
+
+        # Strip leaked heading prefixes from benefit field
+        # (e.g. "Benefit Background and Unmet Need\nActual content..." → "Actual content...")
+        benefit = raw_data.get("benefit")
+        if benefit and isinstance(benefit, str):
+            benefit = re.sub(
+                r"^(?:Benefit\s+)?(?:Background\s+(?:&|and)\s+Unmet\s+Need)\s*:?\s*\n?",
+                "", benefit, flags=re.IGNORECASE,
+            ).strip()
+            raw_data["benefit"] = benefit or None
 
     # ── Description and top-level field extraction ──────────────────────
 

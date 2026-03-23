@@ -55,9 +55,10 @@
 
 ## Scraper Development
 
-**CRITICAL: When you encounter an error or display issue while working on a scraper, you MUST read `scraper_errors.md` FIRST before investigating.** The same or similar issue has likely already been solved for another scraper. Check the log for known solutions before spending time debugging.
 
-**CRITICAL: You MUST get explicit user approval before running a full scrape for any university.** After making code changes, scrape only 1-5 documents for QA by updating them individually in the database. Present results to the user for visual verification at `localhost:5173`. Only run a full scrape (`python3 -m src.cli scrape --university <code>`) after receiving explicit user approval.
+**CRITICAL: You MUST get explicit user approval before running a full scrape for any university.**
+
+**CRITICAL: Never modify existing DB records (data cleanup, migration, bulk updates) without explicit user approval.** Scraper code changes are fine — they only affect future scrapes. But retroactively altering data already in the database is destructive and must always be confirmed first.
 
 - Error/solution log: `scraper_errors.md`
 - Scraper approval tracking: `SCRAPER_PLAN.md`

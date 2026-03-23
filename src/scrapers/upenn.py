@@ -261,16 +261,32 @@ class UPennScraper(BaseScraper):
                 elif "application" in htxt:
                     detail["applications"] = items
                 elif "stage" in htxt or "development" in htxt:
-                    detail["development_stage"] = " ".join(items)
+                    # Items may be concatenated without delimiters (e.g. "ConceptProof of Concept")
+                    # Split on known stage names
+                    raw = " ".join(items)
+                    stages = re.split(r"(?<=[a-z])(?=[A-Z])", raw)
+                    detail["development_stage"] = stages if len(stages) > 1 else items
                 elif "partnership" in htxt or "desired" in htxt:
-                    detail["desired_partnerships"] = items
+                    # Items may be concatenated (e.g. "LicenseCo-development")
+                    split_items = []
+                    for item in items:
+                        parts = re.split(r"(?<=[a-z])(?=[A-Z])", item)
+                        split_items.extend(parts)
+                    detail["desired_partnerships"] = split_items
                 elif "intellectual" in htxt or "ip" in htxt:
                     detail["ip_status"] = " ".join(items)
 
             # Keywords from #keywordLinks div
             kw_div = soup.find(id="keywordLinks")
             if kw_div:
-                keywords = [a.get_text(strip=True) for a in kw_div.find_all("a") if a.get_text(strip=True)]
+                keywords = []
+                for a in kw_div.find_all("a"):
+                    text = a.get_text(strip=True)
+                    if text:
+                        # Strip hierarchy prefix like "Technology Classifications > "
+                        text = re.sub(r"^.*>\s*", "", text).strip()
+                        if text:
+                            keywords.append(text)
                 if keywords:
                     detail["categories"] = keywords
 
