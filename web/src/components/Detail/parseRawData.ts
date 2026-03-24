@@ -74,9 +74,13 @@ export function parseRawData(tech: TechnologyDetail): ParsedRawData {
     marketApplicationHtml: r?.market_application as string | undefined,
     publicationsHtml: typeof r?.publications === 'string' ? r!.publications as string : undefined,
     publicationsList: Array.isArray(r?.publications) ? r!.publications as Array<{ text?: string; url?: string }> : undefined,
-    researchers: r?.researchers as Array<{ name?: string; email?: string; expertise?: string }> | undefined,
-    documents: r?.documents as Array<{ name?: string; url?: string; size?: number }> | undefined,
-    contactsList: r?.contacts as Array<{ name?: string; email?: string; phone?: string }> | undefined,
+    researchers: Array.isArray(r?.researchers)
+      ? r!.researchers as Array<{ name?: string; email?: string; expertise?: string }>
+      : typeof r?.researchers === 'string'
+        ? (r!.researchers as string).split('\n').filter(Boolean).map(name => ({ name: name.trim() }))
+        : undefined,
+    documents: Array.isArray(r?.documents) ? r!.documents as Array<{ name?: string; url?: string; size?: number }> : undefined,
+    contactsList: Array.isArray(r?.contacts) ? r!.contacts as Array<{ name?: string; email?: string; phone?: string }> : undefined,
     flintboxTags: r?.flintbox_tags as string[] | undefined,
     docketNumber: r?.docket_number as string | undefined,
     licensingContact: r?.licensing_contact as { name?: string; title?: string; email?: string } | undefined,
