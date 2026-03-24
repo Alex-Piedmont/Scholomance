@@ -16,6 +16,8 @@ import type {
   QASample,
   QAConflict,
   QARefreshResult,
+  ChatRequest,
+  ChatResponse,
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -190,6 +192,12 @@ export const qaApi = {
 
   resolveConflict: (id: number, resolution: 'keep_correction' | 'accept_new') =>
     postJsonWithBody<{ resolved: boolean }>(`/qa/conflicts/${id}/resolve`, { resolution }),
+}
+
+// Chat API
+export const chatApi = {
+  send: (request: ChatRequest) =>
+    postJsonWithBody<ChatResponse>('/chat', request),
 }
 
 export { ApiError }
