@@ -20,6 +20,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import (
     sessionmaker,
     declarative_base,
@@ -84,6 +85,8 @@ class Technology(Base):
     composite_opportunity_score = Column(DECIMAL(3, 2))
     last_assessed_at = Column(DateTime(timezone=True))
 
+    # Vector embedding for semantic search
+    embedding = Column(Vector(1536))
 
     # Unique constraint
     __table_args__ = (
