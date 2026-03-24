@@ -379,6 +379,7 @@ class Database:
         def _bulk_insert(s: Session) -> tuple[int, int]:
             new_count = 0
             updated_count = 0
+            upserted_techs = []  # Collect for post-upsert embedding
 
             for tech_data in technologies:
                 # Auto-detect patent status
@@ -446,6 +447,7 @@ class Database:
                     existing.raw_data = new_raw
 
                     updated_count += 1
+                    upserted_techs.append(existing)
                 else:
                     tech = Technology(
                         university=tech_data.university,
@@ -463,7 +465,12 @@ class Database:
                         last_patent_check_at=datetime.now(timezone.utc),
                     )
                     s.add(tech)
+                    s.flush()  # Ensure tech.id is populated
                     new_count += 1
+                    upserted_techs.append(tech)
+
+            # Generate embeddings for upserted technologies
+            self._embed_technologies(upserted_techs)
 
             return new_count, updated_count
 
@@ -474,6 +481,34 @@ class Database:
                 result = _bulk_insert(s)
                 s.commit()
                 return result
+
+    @staticmethod
+    def _embed_technologies(technologies: list[Technology]) -> None:
+        """Generate embeddings for a list of technologies. Non-blocking on failure."""
+        from .embedder import Embedder, compose_text
+
+        if not Embedder.is_configured():
+            return
+
+        # Compose texts and filter out empties
+        tech_text_pairs = []
+        for tech in technologies:
+            text = compose_text(tech)
+            if text:
+                tech_text_pairs.append((tech, text))
+
+        if not tech_text_pairs:
+            return
+
+        try:
+            embedder = Embedder()
+            texts = [t[1] for t in tech_text_pairs]
+            vectors = embedder.embed_batch(texts)
+            for (tech, _), vector in zip(tech_text_pairs, vectors):
+                tech.embedding = vector
+            logger.info(f"Embedded {len(vectors)} technologies during scrape")
+        except Exception as e:
+            logger.warning(f"Embedding failed during scrape (non-blocking): {e}")
 
     def search_technologies(
         self,
