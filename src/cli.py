@@ -1321,5 +1321,144 @@ def assess(
     console.print(summary)
 
 
+@main.command()
+@click.option("--batch-size", "-b", type=int, default=100, help="Records per OpenAI API call")
+@click.option("--university", "-u", type=str, help="Only embed technologies from this university")
+@click.option("--limit", "-l", type=int, default=None, help="Max technologies to embed")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def embed(
+    ctx: click.Context,
+    batch_size: int,
+    university: Optional[str],
+    limit: Optional[int],
+    yes: bool,
+) -> None:
+    """Generate vector embeddings for technologies using OpenAI API.
+
+    Embeds all technologies with NULL embeddings. Resumable -- re-running
+    picks up where it left off.
+
+    Examples:
+        tech-scraper embed --yes
+        tech-scraper embed --university stanford --limit 10
+        tech-scraper embed --batch-size 200 --yes
+    """
+    import time as _time
+    from .embedder import Embedder, compose_text
+
+    # Query technologies needing embeddings
+    with db.get_session() as session:
+        query = session.query(Technology).filter(Technology.embedding.is_(None))
+        if university:
+            query = query.filter(Technology.university == university)
+        query = query.order_by(Technology.id)
+        if limit:
+            query = query.limit(limit)
+        technologies = query.all()
+        # Detach from session so we can use them outside
+        tech_list = [(t.id, t.title, t.description, t.raw_data, t.tech_id, t.university) for t in technologies]
+
+    if not tech_list:
+        console.print("[yellow]No technologies need embedding.[/yellow]")
+        return
+
+    console.print(f"\n[bold blue]Found {len(tech_list)} technologies to embed[/bold blue]")
+    if university:
+        console.print(f"[dim]Filtered to university: {university}[/dim]")
+
+    if not yes:
+        click.confirm(f"Proceed with embedding {len(tech_list)} technologies?", abort=True)
+
+    # Initialize embedder
+    try:
+        embedder = Embedder()
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print("[dim]Set OPENAI_API_KEY in your environment or .env file[/dim]")
+        raise SystemExit(1)
+
+    # Build a simple object to pass to compose_text
+    class TechProxy:
+        def __init__(self, title, description, raw_data):
+            self.title = title
+            self.description = description
+            self.raw_data = raw_data
+
+    success_count = 0
+    skipped_count = 0
+    error_count = 0
+    start_time = _time.time()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Embedding...", total=len(tech_list))
+
+        # Process in batches
+        i = 0
+        while i < len(tech_list):
+            batch = tech_list[i : i + batch_size]
+
+            # Compose texts and track which have content
+            batch_texts = []
+            batch_ids = []
+            for tech_id, title, description, raw_data, t_id, uni in batch:
+                proxy = TechProxy(title, description, raw_data)
+                text = compose_text(proxy)
+                if text:
+                    batch_texts.append(text)
+                    batch_ids.append(tech_id)
+                else:
+                    skipped_count += 1
+
+            # Embed the batch
+            if batch_texts:
+                try:
+                    vectors = embedder.embed_batch(batch_texts)
+
+                    # Write vectors to database
+                    with db.get_session() as session:
+                        for db_id, vector in zip(batch_ids, vectors):
+                            session.query(Technology).filter(
+                                Technology.id == db_id
+                            ).update({"embedding": vector})
+                        session.commit()
+
+                    success_count += len(vectors)
+
+                except Exception as e:
+                    logger.error(f"Batch embedding failed: {e}")
+                    error_count += len(batch_texts)
+
+            progress.update(
+                task,
+                advance=len(batch),
+                description=f"Embedded {success_count}/{len(tech_list)} | skipped {skipped_count} | errors {error_count}",
+            )
+            i += batch_size
+
+    elapsed = _time.time() - start_time
+
+    # Summary
+    summary = Table(title="Embedding Summary")
+    summary.add_column("Metric", style="bold")
+    summary.add_column("Value", justify="right")
+
+    summary.add_row("Embedded", str(success_count))
+    summary.add_row("Skipped (empty text)", str(skipped_count))
+    summary.add_row("Errors", str(error_count))
+    summary.add_row("Elapsed", f"{elapsed:.1f}s")
+    summary.add_row("Total tokens", str(embedder.total_tokens))
+    # text-embedding-3-small: $0.02 per 1M tokens
+    est_cost = (embedder.total_tokens / 1_000_000) * 0.02
+    summary.add_row("Estimated cost", f"${est_cost:.4f}")
+
+    console.print()
+    console.print(summary)
+
+
 if __name__ == "__main__":
     main()
