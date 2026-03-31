@@ -119,7 +119,7 @@ class MinnesotaScraper(TechPublisherScraper):
             detail: dict = {}
 
             # Technology number from page content
-            text = soup.get_text()
+            text = soup.get_text(separator="\n")
             tech_num_match = re.search(r'(?:Technology\s*#?|Tech\s*(?:No\.?|Number):?\s*)(\d{6,})', text)
             if tech_num_match:
                 detail["technology_number"] = tech_num_match.group(1)
@@ -130,8 +130,8 @@ class MinnesotaScraper(TechPublisherScraper):
                 detail["ip_status"] = ip_match.group(1).strip()
                 detail["patent_status"] = detail["ip_status"]
 
-            # Application/Patent number
-            app_match = re.search(r'Application\s*#?[:\s]*([^\n<]+)', text)
+            # Application/Patent number — require # or : before the number
+            app_match = re.search(r'Application\s*[#:]\s*([^\n]+)', text)
             if app_match:
                 detail["application_number"] = app_match.group(1).strip()
 
@@ -143,6 +143,7 @@ class MinnesotaScraper(TechPublisherScraper):
                     "applications", "application",
                     "phase of development", "development stage", "stage of development",
                     "researchers", "publications", "references", "citations",
+                    "technology overview", "overview",
                 }
 
                 current_heading = None
@@ -234,14 +235,40 @@ class MinnesotaScraper(TechPublisherScraper):
                             detail["researchers"] = parts
                     elif "publication" in h_lower or "reference" in h_lower or "citation" in h_lower:
                         detail["publications"] = text
+                    elif "overview" in h_lower:
+                        detail.setdefault("abstract", text)
                     else:
-                        # Sub-technology heading — add to abstract
-                        abstract_parts.append(text)
+                        # Skip boilerplate sections; store other content as 'other'
+                        if any(kw in h_lower for kw in ("contact", "office", "learn more", "share", "desired partner", "looking for")):
+                            continue
+                        existing_other = detail.get("other", "")
+                        section_text = f"**{heading}**\n\n{text}"
+                        detail["other"] = f"{existing_other}\n\n{section_text}".strip() if existing_other else section_text
 
                 if description_parts:
                     detail["full_description"] = "\n\n".join(description_parts)
-                if abstract_parts:
-                    detail["abstract"] = "\n\n".join(abstract_parts)
+
+            # Remove 'other' if it duplicates abstract content
+            if detail.get("other") and detail.get("abstract"):
+                other_text = re.sub(r"\*\*[^*]+\*\*\s*", "", detail["other"])
+                other_norm = re.sub(r"\s+", " ", other_text).strip()
+                abstract_norm = re.sub(r"\s+", " ", detail["abstract"]).strip()
+                if other_norm in abstract_norm or abstract_norm in other_norm:
+                    del detail["other"]
+
+            # Strip boilerplate from all text fields
+            _BOILERPLATE = re.compile(
+                r"(?:\n\n|\A)"
+                r"(?:Please contact our office[^\n]*"
+                r"|Desired\s+Partnerships?[^\n]*"
+                r"|Looking\s+for[^\n]*partners?[^\n]*"
+                r")\s*$",
+                re.IGNORECASE | re.DOTALL,
+            )
+            for key in ("abstract", "full_description", "other", "development_stage"):
+                val = detail.get(key)
+                if isinstance(val, str):
+                    detail[key] = _BOILERPLATE.sub("", val).strip() or None
 
             # Collapsible sections (Authors, References, Supporting documents)
             for collapsible in soup.select(".collapsible-header"):

@@ -92,10 +92,14 @@ class UTAustinScraper(BaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
-                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
-                        tech.description = detail["full_description"]
+                    # Use preamble or solution as description instead of background
+                    if detail.get("short_description"):
+                        tech.description = detail["short_description"]
+                    elif detail.get("solution"):
+                        tech.description = detail["solution"]
+                    elif detail.get("background") and tech.description and tech.description.startswith("Background"):
+                        # RSS description started with "Background" - use background but strip the prefix
+                        tech.description = re.sub(r'^Background\s*', '', tech.description).strip()
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):
@@ -211,10 +215,21 @@ class UTAustinScraper(BaseScraper):
             detail: dict = {}
             text = soup.get_text()
 
-            # Description
-            desc_div = soup.select_one(".c_content, .js-text, .description, .product-description-box")
-            if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+            # Extract preamble text before the first heading as short_description
+            all_headings = soup.find_all(["h2", "h3"])
+            if all_headings:
+                first_heading = all_headings[0]
+                parent = first_heading.parent
+                if parent:
+                    preamble_parts = []
+                    for child in parent.children:
+                        if child == first_heading:
+                            break
+                        t = child.get_text(strip=True) if hasattr(child, "get_text") else str(child).strip()
+                        if t:
+                            preamble_parts.append(t)
+                    if preamble_parts:
+                        detail["short_description"] = "\n".join(preamble_parts)
 
             # Parse sections by headings
             for heading in soup.find_all(["h2", "h3", "strong"]):
@@ -231,42 +246,68 @@ class UTAustinScraper(BaseScraper):
                             t = li.get_text(strip=True)
                             if t:
                                 items.append(t)
-                    elif nxt.name in ("p", "div") and nxt.get_text(strip=True):
+                    elif nxt.name == "table":
+                        for td in nxt.find_all("td"):
+                            t = td.get_text(strip=True)
+                            if t:
+                                items.append(t)
+                    elif nxt.name == "p" and nxt.get_text(strip=True):
+                        p_text = nxt.get_text(separator="\n", strip=True)
+                        # Split on bullet characters (•) if present
+                        if "•" in p_text:
+                            for line in re.split(r"[•]", p_text):
+                                line = line.strip(" \xa0\t\n")
+                                if line:
+                                    items.append(line)
+                        elif "\n" in p_text:
+                            for line in p_text.split("\n"):
+                                line = line.strip()
+                                if line:
+                                    items.append(line)
+                        else:
+                            items.append(p_text)
+                    elif nxt.name == "div" and nxt.get_text(strip=True):
                         items.append(nxt.get_text(strip=True))
                     nxt = nxt.find_next_sibling()
                 if not items:
                     continue
                 if "background" in htxt:
                     detail["background"] = "\n".join(items)
+                elif "inventor" in htxt or "researcher" in htxt or "investigator" in htxt:
+                    detail["inventors"] = items
                 elif "benefit" in htxt or "advantage" in htxt:
-                    detail["advantages"] = items
+                    detail["benefit"] = "\n".join(f"- {item}" for item in items)
                 elif "application" in htxt:
                     detail["applications"] = items
                 elif "opportunity" in htxt:
-                    detail["opportunity"] = " ".join(items)
+                    detail["market_opportunity"] = "\n".join(f"- {item}" for item in items)
+                elif "solution" in htxt or "technology" in htxt:
+                    detail["solution"] = "\n".join(items)
                 elif "development" in htxt or "stage" in htxt:
                     detail["development_stage"] = " ".join(items)
                 elif "intellectual" in htxt or "ip" in htxt:
-                    detail["ip_info"] = " ".join(items)
+                    detail["ip_text"] = "\n".join(items)
 
-            # Inventors
-            inventors = []
-            for a in soup.find_all("a", href=True):
-                href = a.get("href", "")
-                if "searchresults" in href and "type=i" in href:
-                    name = a.get_text(strip=True)
-                    if name and name not in inventors:
-                        inventors.append(name)
-            if inventors:
-                detail["inventors"] = inventors
+            # Inventors fallback: extract from bio links if heading-based parse missed them
+            if not detail.get("inventors"):
+                fallback_inventors = []
+                for a in soup.find_all("a", href=True):
+                    href = a.get("href", "")
+                    if ("searchresults" in href and "type=i" in href) or "bio.aspx" in href:
+                        name = a.get_text(strip=True)
+                        if name and name not in fallback_inventors:
+                            fallback_inventors.append(name)
+                if fallback_inventors:
+                    detail["inventors"] = fallback_inventors
 
             # Categories
+            inventor_names = detail.get("inventors", [])
             categories = []
             for a in soup.find_all("a", href=True):
                 href = a.get("href", "")
                 if ("searchresults" in href or "category" in href) and "type=i" not in href:
                     cat = a.get_text(strip=True)
-                    if cat and cat not in categories and len(cat) > 1 and cat not in (inventors or []):
+                    if cat and cat not in categories and len(cat) > 1 and cat not in inventor_names:
                         categories.append(cat)
             if categories:
                 detail["categories"] = categories
@@ -276,11 +317,22 @@ class UTAustinScraper(BaseScraper):
             email_link = soup.select_one("a[href^='mailto:']")
             if email_link:
                 contact["email"] = email_link["href"].replace("mailto:", "").split("?")[0]
-                parent = email_link.find_parent()
-                if parent:
-                    pt = parent.get_text(strip=True)
-                    if pt != contact["email"]:
-                        contact["name"] = pt.replace(contact["email"], "").strip().rstrip(",").strip()
+                # Look for contact name: check image title attr or previous <strong> tags
+                container = email_link.find_parent("div") or email_link.find_parent("p") or email_link.find_parent()
+                if container:
+                    # The contact image often has the name in its title attribute
+                    img = container.find("img", title=True)
+                    if img and img.get("title"):
+                        contact["name"] = img["title"].strip()
+                    else:
+                        # Find <strong> tags before the email link (name comes before email)
+                        for tag in container.find_all("strong"):
+                            tag_text = tag.get_text(strip=True)
+                            if tag_text and tag_text != contact["email"]:
+                                # Skip reference IDs (e.g. "8367 WAL")
+                                if not re.match(r'^\d+\s+[A-Z]{2,}$', tag_text):
+                                    contact["name"] = tag_text
+                                    break
             if contact:
                 detail["contact"] = contact
 

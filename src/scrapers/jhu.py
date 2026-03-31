@@ -1,14 +1,22 @@
-"""Johns Hopkins University Technology Ventures scraper using Algolia API."""
+"""Johns Hopkins University Technology Ventures scraper using Algolia API with Playwright detail fetching.
+
+Uses Algolia search API for technology listings, then Playwright for detail pages
+since TechnologyPublisher renders content via JavaScript.
+"""
 
 import asyncio
+import html as html_mod
 import re
 from typing import AsyncIterator, Optional
 
 import aiohttp
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext
 from loguru import logger
 
 from .base import BaseScraper, Technology
+
+DETAIL_CONCURRENCY = 3
 
 
 class JHUScraper(BaseScraper):
@@ -39,6 +47,9 @@ class JHUScraper(BaseScraper):
         )
         self._session: Optional[aiohttp.ClientSession] = None
         self._seen_ids: set[str] = set()  # Track seen IDs to avoid duplicates
+        self._browser: Optional[Browser] = None
+        self._context: Optional[BrowserContext] = None
+        self._page: Optional[Page] = None
 
     @property
     def name(self) -> str:
@@ -57,8 +68,36 @@ class JHUScraper(BaseScraper):
             self._session = None
             logger.debug("HTTP session closed")
 
+    async def _init_browser(self) -> None:
+        """Initialize Playwright browser for detail page fetching."""
+        if self._browser is None:
+            playwright = await async_playwright().start()
+            self._browser = await playwright.chromium.launch(
+                headless=True,
+                args=['--disable-blink-features=AutomationControlled', '--no-sandbox']
+            )
+            self._context = await self._browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            )
+            self._page = await self._context.new_page()
+            logger.debug("Playwright browser initialized for JHU")
+
+    async def _close_browser(self) -> None:
+        """Close Playwright browser."""
+        if self._page:
+            await self._page.close()
+            self._page = None
+        if self._context:
+            await self._context.close()
+            self._context = None
+        if self._browser:
+            await self._browser.close()
+            self._browser = None
+            logger.debug("Playwright browser closed")
+
     async def scrape(self) -> AsyncIterator[Technology]:
-        """Scrape all technologies from JHU via Algolia API."""
+        """Scrape all technologies from JHU via Algolia API with Playwright detail fetching."""
         try:
             await self._init_session()
             self._seen_ids = set()
@@ -70,6 +109,8 @@ class JHUScraper(BaseScraper):
                 "X-Algolia-API-Key": self.ALGOLIA_API_KEY,
                 "Content-Type": "application/json",
             }
+
+            all_technologies: list[Technology] = []
 
             # Query each category separately to work around 1000 result limit
             for category in self.CATEGORIES:
@@ -96,9 +137,8 @@ class JHUScraper(BaseScraper):
                             tech = self._parse_algolia_hit(item)
                             if tech and tech.tech_id not in self._seen_ids:
                                 self._seen_ids.add(tech.tech_id)
-                                self._tech_count += 1
                                 new_count += 1
-                                yield tech
+                                all_technologies.append(tech)
 
                         self.log_progress(f"Category '{category}': {len(hits)} hits, {new_count} new")
 
@@ -109,12 +149,40 @@ class JHUScraper(BaseScraper):
                 self._page_count += 1
                 await self.delay()
 
+            # Fetch detail pages using Playwright for full content
+            self.log_progress(f"Fetching detail pages for {len(all_technologies)} technologies")
+            await self._init_browser()
+
+            for i, tech in enumerate(all_technologies):
+                try:
+                    detail = await self.scrape_technology_detail(tech.url)
+                    if detail:
+                        tech.raw_data.update(detail)
+                        # Update top-level fields from detail
+                        if detail.get("abstract") and (not tech.description or "..." in tech.description):
+                            tech.description = detail["abstract"]
+                        if detail.get("inventors"):
+                            tech.innovators = detail["inventors"]
+                        if detail.get("detail_keywords"):
+                            tech.keywords = detail["detail_keywords"]
+                    await asyncio.sleep(self.delay_seconds)
+                except Exception as e:
+                    logger.debug(f"Error fetching detail for {tech.url}: {e}")
+
+                if (i + 1) % 50 == 0:
+                    self.log_progress(f"Enriched {i + 1}/{len(all_technologies)} technologies")
+
+            for tech in all_technologies:
+                self._tech_count += 1
+                yield tech
+
             self.log_progress(
                 f"Completed scraping: {self._tech_count} unique technologies"
             )
 
         finally:
             await self._close_session()
+            await self._close_browser()
 
     async def scrape_page(self, page_num: int) -> list[Technology]:
         """
@@ -150,8 +218,9 @@ class JHUScraper(BaseScraper):
             description = (
                 sections.get("short_description")
                 or sections.get("abstract")
-                or truncated_description.strip()
-                or full_description[:2000].strip()
+                or sections.get("background")
+                or html_mod.unescape(truncated_description).strip()
+                or html_mod.unescape(full_description[:2000]).strip()
             )
 
             # Parse categories from finalPathCategories
@@ -192,12 +261,10 @@ class JHUScraper(BaseScraper):
                 "client_departments": item.get("clientDepartments"),
             }
 
-            # Add parsed sections
-            for key in ("abstract", "background", "short_description", "advantages",
-                        "applications", "publications", "ip_status", "market_opportunity",
-                        "development_stage", "benefit", "technical_problem", "solution"):
-                if sections.get(key):
-                    raw_data[key] = sections[key]
+            # Add all parsed sections (both standard keys and original heading names)
+            for key, value in sections.items():
+                if key != "inventors_section" and key != "inventors" and value:
+                    raw_data[key] = value
 
             return Technology(
                 university="jhu",
@@ -222,28 +289,31 @@ class JHUScraper(BaseScraper):
         text = html_mod.unescape(text)
 
         section_patterns = [
-            ("short_description", r"SHORT\s+DESCRIPTION"),
-            ("abstract", r"ABSTRACT"),
-            ("background", r"BACKGROUND"),
-            ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
-            ("development_stage", r"DEVELOPMENT\s+STAGE"),
-            ("applications", r"APPLICATIONS"),
-            ("advantages", r"ADVANTAGES"),
-            ("publications", r"PUBLICATIONS"),
-            ("ip_status", r"IP\s+STATUS"),
-            ("benefit", r"BENEFITS?"),
-            ("inventors_section", r"INVENTORS?"),
-            ("technical_problem", r"TECHNICAL\s+PROBLEM"),
-            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
+            ("short_description", r"(?:SHORT\s+DESCRIPTION|NOVELTY):?"),
+            ("abstract", r"ABSTRACT:?"),
+            ("background", r"(?:BACKGROUND|UNMET\s+NEED):?"),
+            ("market_opportunity", r"MARKET\s+(?:OPPORTUNITY|APPLICATIONS?):?"),
+            ("development_stage", r"(?:DEVELOPMENT\s+STAGE|STAGE\s+OF\s+DEVELOPMENT):?"),
+            ("applications", r"APPLICATIONS:?"),
+            ("advantages", r"(?:ADVANTAGES|VALUE\s+PROPOSITION):?"),
+            ("publications", r"PUBLICATION(?:\(S\)|S)?:?"),
+            ("ip_status", r"(?:IP\s+STATUS|PATENT\s+(?:STATUS|INFORMATION|DETAILS)):?"),
+            ("benefit", r"BENEFITS?:?"),
+            ("inventors_section", r"INVENTORS?:?"),
+            ("technical_problem", r"(?:TECHNICAL\s+PROBLEM|PROBLEM\s+STATEMENT):?"),
+            ("solution", r"(?:TECHNICAL\s+)?(?:SOLUTION|TECHNOLOGY\s+(?:OVERVIEW|SOLUTION)):?"),
         ]
 
         all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
-        header_re = re.compile(rf"\s*(?:{all_headers})\s*", re.IGNORECASE)
+        # Require 2+ whitespace chars (or start of text) before a header to avoid
+        # matching mid-sentence words like "research applications"
+        header_re = re.compile(rf"(?:^|\s{{2,}})(?:{all_headers})\s*", re.IGNORECASE)
 
         sections = {}
         parts = header_re.split(text)
 
         current_key = None
+        current_heading = None
         for part in parts:
             if part is None:
                 continue
@@ -259,6 +329,9 @@ class JHUScraper(BaseScraper):
 
             if matched_key:
                 current_key = matched_key
+                # Preserve the original heading text (title-cased, no colon)
+                current_heading = re.sub(r":$", "", part).strip()
+                current_heading = current_key
             elif current_key:
                 if current_key == "inventors_section":
                     sections[current_key] = part
@@ -282,130 +355,230 @@ class JHUScraper(BaseScraper):
         return sections
 
     async def scrape_technology_detail(self, url: str) -> Optional[dict]:
+        """Scrape detailed information from a technology's detail page using Playwright.
+
+        Playwright-rendered pages show: Case ID, Unmet Need, Technology Overview,
+        Stage of Development, Patent Information (tab-separated table), Publications,
+        Inventors, Category(s).
+
+        User-visible pages show: Case ID, Problem Statement, Technology Solution,
+        Development Level, Patent Details, Publication Details, Keywords.
+
+        We match both sets of headings with alternation patterns.
         """
-        Scrape detailed information from a technology's detail page.
-
-        JHU detail pages contain structured patent information including:
-        - Patent number
-        - Serial number
-        - Issue Date
-        - Status (Granted/Pending/etc.)
-
-        Args:
-            url: The URL of the technology detail page
-
-        Returns:
-            Dictionary with detailed technology information including patent info
-        """
-        await self._init_session()
-
-        try:
-            async with self._session.get(url) as response:
-                if response.status != 200:
-                    return None
-
-                html = await response.text()
-                soup = BeautifulSoup(html, "lxml")
-
-                detail = {"url": url}
-
-                # Get full description
-                desc_div = soup.find("div", class_="technology-description")
-                if desc_div:
-                    detail["full_description"] = desc_div.get_text(strip=True)
-
-                # Extract patent information from structured HTML
-                patent_info = self._extract_patent_info_from_html(soup, html)
-                if patent_info:
-                    detail.update(patent_info)
-
-                return detail
-
-        except Exception as e:
-            logger.debug(f"Error fetching technology detail: {e}")
+        if not url or not self._page:
             return None
 
-    def _extract_patent_info_from_html(self, soup, html: str) -> dict:
-        """Extract structured patent information from JHU HTML page."""
-        patent_info = {}
-        patent_numbers = []
-        serial_numbers = []
+        try:
+            await self._page.goto(url, wait_until="networkidle", timeout=60000)
+            await asyncio.sleep(1)
 
-        # JHU displays patent info in structured format
-        # Look for patent number patterns
-        us_patent_matches = re.findall(
-            r'(?:Patent|Patent\s*#?|Patent\s*Number)[:\s]*(\d{1,3}(?:,\d{3})+|\d{7,10})',
-            html,
-            re.IGNORECASE
-        )
-        for match in us_patent_matches:
-            clean_num = match.replace(",", "")
-            if len(clean_num) >= 7:
-                patent_numbers.append(match)
+            # Get text content
+            text = await self._page.inner_text("body")
+            detail: dict = {"url": url}
 
-        # Look for serial numbers (application numbers)
-        serial_matches = re.findall(
-            r'(?:Serial|Serial\s*#?|Application\s*#?)[:\s]*(\d{2}/\d{3},?\d{3})',
-            html,
-            re.IGNORECASE
-        )
-        serial_numbers.extend(serial_matches)
+            # Section patterns — covers three known template variants:
+            #   Newer: Unmet Need, Technology Overview, Stage of Development
+            #   User-visible: Problem Statement, Technology Solution, Development Level
+            #   Older: Novelty, Value Proposition, Technical Details, Looking for Partners
+            sections = [
+                ("case_id", r"Case\s+ID:?"),
+                ("short_description", r"Novelty:?"),
+                ("technical_problem", r"(?:Problem\s+Statement|Unmet\s+Need|Value\s+Proposition):?"),
+                ("solution", r"(?:Technology\s+Solution|Technology\s+Overview|Technical\s+Details):?"),
+                ("development_stage", r"(?:Development\s+Level|Stage\s+of\s+Development|Looking\s+for\s+Partners):?"),
+                ("data_availability", r"Data\s+Availability:?"),
+                ("patent_info", r"(?:Patent\s+Details|Patent\s+Information):?"),
+                ("ip_status_inline", r"Patent\s+Status:"),
+                ("publications", r"(?:Publication\s+Details|(?:Select\s+)?Publications?(?:/Associated\s+Cases)?):?"),
+                ("keywords", r"(?:Keywords|Category\(s\)):?"),
+                ("inventors_section", r"Inventors?:"),
+            ]
 
-        if patent_numbers:
-            patent_info["patent_numbers"] = list(set(patent_numbers))
-            patent_info["ip_status"] = "Granted"
+            # Parse each section by finding boundaries
+            for field, pattern in sections:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if not match:
+                    continue
 
-        if serial_numbers:
-            patent_info["serial_numbers"] = list(set(serial_numbers))
+                start = match.end()
+                end = len(text)
 
-        # Look for explicit Status field
-        status_match = re.search(
-            r'Status[:\s]*([A-Za-z]+)',
-            html,
-            re.IGNORECASE
-        )
-        if status_match:
-            status_text = status_match.group(1).lower()
-            if "granted" in status_text or "issued" in status_text:
-                patent_info["ip_status"] = "Granted"
-            elif "pending" in status_text:
-                if "ip_status" not in patent_info:
-                    patent_info["ip_status"] = "Pending"
-            elif "filed" in status_text:
-                if "ip_status" not in patent_info:
-                    patent_info["ip_status"] = "Filed"
-            elif "provisional" in status_text:
-                if "ip_status" not in patent_info:
-                    patent_info["ip_status"] = "Provisional"
+                # Find next section start
+                for _, next_pat in sections:
+                    next_match = re.search(next_pat, text[start:], re.IGNORECASE)
+                    if next_match:
+                        candidate_end = start + next_match.start()
+                        if candidate_end < end:
+                            end = candidate_end
 
-        # Look for Issue Date
-        date_match = re.search(
-            r'Issue\s*Date[:\s]*(\d{1,2}/\d{1,2}/\d{4})',
-            html,
-            re.IGNORECASE
-        )
-        if date_match:
-            patent_info["issue_date"] = date_match.group(1)
+                # Find footer markers
+                for footer in ["Direct Link:", "Subscribe for", "For Information, Contact",
+                               "Get custom alerts", "© 20"]:
+                    footer_idx = text.find(footer, start)
+                    if 0 < footer_idx < end:
+                        end = footer_idx
 
-        html_lower = html.lower()
+                content = text[start:end].strip()
+                if not content:
+                    continue
 
-        # Fallback: check for patent pending keywords
-        if "patent pending" in html_lower or "patent-pending" in html_lower:
-            if "ip_status" not in patent_info:
-                patent_info["ip_status"] = "Pending"
+                # Clean lines (strip bullets/dashes)
+                lines = [line.strip().lstrip("·•-").strip() for line in content.split("\n") if line.strip()]
+                lines = [l for l in lines if l and len(l) > 1]
 
-        # Check for PCT/international applications
-        if re.search(r'\bpct\b', html_lower) or "international application" in html_lower:
-            if "ip_status" not in patent_info:
-                patent_info["ip_status"] = "Filed"
+                if field == "case_id":
+                    detail["case_id"] = lines[0] if lines else content.strip()
+                elif field == "short_description":
+                    detail["short_description"] = " ".join(lines)
+                elif field == "data_availability":
+                    detail["data_availability"] = " ".join(lines)
+                elif field == "technical_problem":
+                    detail["technical_problem"] = " ".join(lines)
+                    detail["background"] = detail["technical_problem"]
+                elif field == "solution":
+                    detail["solution"] = " ".join(lines)
+                    detail["abstract"] = detail["solution"]
+                elif field == "development_stage":
+                    detail["development_stage"] = " ".join(lines)
+                elif field == "patent_info":
+                    # Tab-separated table (Patent Information format)
+                    patents = self._parse_patent_text(content)
+                    if patents:
+                        detail["patent_details"] = patents
+                        statuses = []
+                        for pat in patents:
+                            status = pat.get("patent_status", "")
+                            patent_no = pat.get("patent_no", "")
+                            title = pat.get("title", "")
+                            if status:
+                                entry = status
+                                if patent_no:
+                                    entry += f" — {patent_no}"
+                                if title:
+                                    entry = f"{title}: {entry}"
+                                statuses.append(entry)
+                        if statuses:
+                            detail["ip_status"] = "; ".join(statuses)
+                elif field == "ip_status_inline":
+                    # Inline format: "18/286,185 (Status: Pending)"
+                    # Don't overwrite table-derived ip_status
+                    if "ip_status" not in detail:
+                        ip_text = " ".join(lines)
+                        if ip_text:
+                            detail["ip_status"] = ip_text
+                elif field == "publications":
+                    # Filter out "N/A" and noise
+                    pubs = [l for l in lines if len(l) > 10 and l.lower() != "n/a"]
+                    if pubs:
+                        detail["publications"] = [{"text": p} for p in pubs]
+                elif field == "keywords":
+                    # Each line is a keyword (don't split on commas —
+                    # category names like "Computers, Electronics & Software" contain commas)
+                    kw = [l for l in lines if len(l) > 1]
+                    if kw:
+                        detail["detail_keywords"] = kw
+                elif field == "inventors_section":
+                    inventors = [l for l in lines
+                                 if len(l) > 2
+                                 and not any(x in l.lower() for x in
+                                             ["category", "subscribe", "get custom", "save this"])]
+                    if inventors:
+                        detail["inventors"] = inventors
 
-        return patent_info
+            # Parse publication links from <a> tags
+            pub_links = await self._parse_publication_links()
+            if pub_links:
+                existing = detail.get("publications", [])
+                for link in pub_links:
+                    if not any(p.get("url") == link["url"] for p in existing):
+                        existing.append(link)
+                if existing:
+                    detail["publications"] = existing
 
-    # Backwards compatibility methods
-    async def _init_browser(self) -> None:
-        """Backwards compatibility - initializes HTTP session instead."""
-        await self._init_session()
+            return detail if len(detail) > 1 else None
 
-    async def _close_browser(self) -> None:
-        """Backwards compatibility - closes HTTP session instead."""
-        await self._close_session()
+        except Exception as e:
+            logger.debug(f"Error scraping detail page {url}: {e}")
+            return None
+
+    @staticmethod
+    def _parse_patent_text(content: str) -> list[dict]:
+        """Parse tab-separated patent table from inner_text content.
+
+        The patent info section in inner_text looks like:
+        Title\\tApp Type\\tCountry\\tSerial No.\\tPatent No.\\tFile Date\\tIssued Date\\tExpire Date\\tPatent Status
+        SOME TITLE\\tPCT: ...\\tUnited States\\t17/309,268\\t12,276,590\\t5/13/2021\\t...\\tGranted
+        """
+        lines = [l.strip() for l in content.split("\n") if l.strip()]
+        if not lines:
+            return []
+
+        # Find header line (contains tab-separated column names)
+        header_idx = None
+        for i, line in enumerate(lines):
+            if "\t" in line and ("patent" in line.lower() or "serial" in line.lower()):
+                header_idx = i
+                break
+
+        if header_idx is None:
+            return []
+
+        headers = [h.strip().lower() for h in lines[header_idx].split("\t")]
+        header_map = {
+            "title": "title",
+            "app type": "app_type",
+            "country": "country",
+            "serial no.": "serial_no",
+            "patent no.": "patent_no",
+            "file date": "file_date",
+            "issued date": "issued_date",
+            "expire date": "expire_date",
+            "patent status": "patent_status",
+        }
+
+        col_map = {}
+        for i, h in enumerate(headers):
+            for key, field in header_map.items():
+                if key in h:
+                    col_map[i] = field
+                    break
+
+        patents = []
+        for line in lines[header_idx + 1:]:
+            if "\t" not in line:
+                continue
+            cells = line.split("\t")
+            if len(cells) < 3:
+                continue
+            patent = {}
+            for i, cell in enumerate(cells):
+                field = col_map.get(i)
+                if field:
+                    patent[field] = cell.strip()
+            # Validate: must have at least a title or patent number
+            if patent.get("title") or patent.get("patent_no") or patent.get("serial_no"):
+                patents.append(patent)
+
+        return patents
+
+    async def _parse_publication_links(self) -> list[dict]:
+        """Extract publication links from the detail page."""
+        if not self._page:
+            return []
+        try:
+            links = await self._page.evaluate("""() => {
+                const allLinks = Array.from(document.querySelectorAll('a[href]'));
+                const results = [];
+                for (const a of allLinks) {
+                    const href = a.href;
+                    if (href && (href.includes('pubmed') || href.includes('doi.org') || href.includes('ncbi.nlm.nih.gov'))) {
+                        results.push({text: a.innerText.trim() || href, url: href});
+                    }
+                }
+                return results;
+            }""")
+            return links or []
+        except Exception as e:
+            logger.debug(f"Error parsing publication links: {e}")
+            return []

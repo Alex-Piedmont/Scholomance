@@ -204,23 +204,26 @@ class UNLVScraper(BaseScraper):
         text = html_mod.unescape(text)
 
         section_patterns = [
-            ("short_description", r"SHORT\s+DESCRIPTION"),
-            ("abstract", r"ABSTRACT"),
-            ("background", r"BACKGROUND"),
-            ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
-            ("development_stage", r"DEVELOPMENT\s+STAGE"),
-            ("applications", r"APPLICATIONS"),
-            ("advantages", r"ADVANTAGES"),
-            ("publications", r"PUBLICATIONS"),
-            ("ip_status", r"IP\s+STATUS"),
-            ("benefit", r"BENEFITS?"),
-            ("inventors_section", r"INVENTORS?"),
-            ("technical_problem", r"TECHNICAL\s+PROBLEM"),
-            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
+            ("short_description", r"\bSHORT\s+DESCRIPTION\b"),
+            ("abstract", r"\bABSTRACT\b"),
+            ("abstract", r"\bTHE\s+INVENTION\b"),
+            ("background", r"\bBACKGROUND\b"),
+            ("market_opportunity", r"\bMARKET\s+OPPORTUNITY\b"),
+            ("development_stage", r"\bDEVELOPMENT\s+STAGE\b"),
+            ("applications", r"\bAPPLICATIONS\b"),
+            ("advantages", r"\bADVANTAGES\b"),
+            ("publications", r"\bPUBLICATIONS\b"),
+            ("ip_status", r"\bIP\s+STATUS\b"),
+            ("ip_status", r"\bINTELLECTUAL\s+PROPERTY\b"),
+            ("benefit", r"\bBENEFITS?\b"),
+            ("inventors_section", r"\bINVENTORS?\b"),
+            ("technical_problem", r"\bTECHNICAL\s+PROBLEM\b"),
+            ("solution", r"\b(?:TECHNICAL\s+)?SOLUTION\b"),
         ]
 
         all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
-        header_re = re.compile(rf"\s*(?:{all_headers})\s*", re.IGNORECASE)
+        # Require 2+ whitespace before header to avoid mid-sentence matches
+        header_re = re.compile(rf"(?:\s{{2,}}|^)(?:{all_headers})\s*", re.IGNORECASE)
 
         sections = {}
         parts = header_re.split(text)
@@ -245,7 +248,8 @@ class UNLVScraper(BaseScraper):
                 if current_key == "inventors_section":
                     sections[current_key] = part
                 else:
-                    cleaned = re.sub(r"\s+", " ", part).strip()
+                    # Strip leading colons/nbsp left over from heading text like "Benefits:"
+                    cleaned = re.sub(r"\s+", " ", part).strip().lstrip(":").lstrip("\xa0").strip()
                     if cleaned:
                         sections[current_key] = cleaned
 

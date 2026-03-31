@@ -287,3 +287,24 @@ class TestDatabaseScrapeLogOperations:
 
         assert hasattr(db, "create_scrape_log")
         assert hasattr(db, "update_scrape_log")
+
+
+class TestDatabaseClassificationStats:
+    """Tests for classification stats retrieval."""
+
+    @patch("src.database.create_engine")
+    @patch("src.database.sessionmaker")
+    def test_get_classification_stats_returns_expected_keys(self, mock_sessionmaker, mock_create_engine):
+        """Test get_classification_stats returns dict with expected keys."""
+        mock_session = MagicMock()
+        mock_session.query.return_value.scalar.return_value = 0.5
+        mock_session.query.return_value.filter.return_value.group_by.return_value.all.return_value = []
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=None)
+        mock_sessionmaker.return_value = MagicMock(return_value=mock_session)
+
+        db = Database("postgresql://test:test@localhost/test")
+        stats = db.get_classification_stats()
+
+        assert "total_cost" in stats
+        assert "total_classifications" in stats

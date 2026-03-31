@@ -129,13 +129,16 @@ class BuffaloScraper(BaseScraper):
             )
 
             # Parse categories from finalPathCategories
+            # Filter out campus names and top-level groupings
+            skip_categories = {"University at Buffalo", "Technology Classifications"}
             categories = []
             final_path = item.get("finalPathCategories", "")
             if final_path:
                 for path in final_path.split(", "):
                     parts = path.split(" > ")
-                    if len(parts) > 1:
-                        categories.append(parts[-1].strip())
+                    leaf = parts[-1].strip() if len(parts) > 1 else ""
+                    if leaf and leaf not in skip_categories:
+                        categories.append(leaf)
 
             # Parse inventors from structured field or path string
             inventors = []
@@ -166,8 +169,7 @@ class BuffaloScraper(BaseScraper):
                 "object_id": item.get("objectID"),
                 "title": title,
                 "url": url,
-                "description": description,
-                "full_description": full_description if full_description else None,
+                "short_description": description,
                 "disclosure_date": item.get("disclosureDate"),
                 "categories": categories,
                 "inventors": inventors,
@@ -175,12 +177,22 @@ class BuffaloScraper(BaseScraper):
                 "client_departments": item.get("clientDepartments"),
             }
 
-            # Add parsed sections
-            for key in ("abstract", "background", "short_description", "advantages",
+            # Add parsed sections (short_description already set above)
+            for key in ("abstract", "background", "advantages",
                         "applications", "publications", "ip_status", "market_opportunity",
-                        "development_stage", "benefit"):
+                        "development_stage", "benefit", "solution", "technical_problem",
+                        "trl"):
                 if sections.get(key):
                     raw_data[key] = sections[key]
+
+            # If no structured sections found but full description is substantial,
+            # store as cleaned plain text in description
+            if not sections and full_description:
+                cleaned = re.sub(r"<[^>]+>", " ", full_description)
+                cleaned = re.sub(r"&nbsp;", " ", cleaned)
+                cleaned = re.sub(r"\s+", " ", cleaned).strip()
+                if len(cleaned) > 100:
+                    raw_data["description"] = cleaned
 
             return Technology(
                 university="buffalo",
@@ -199,73 +211,92 @@ class BuffaloScraper(BaseScraper):
 
     @staticmethod
     def _parse_description_sections(text: str) -> dict:
-        """Parse structured sections from Algolia descriptionFull text."""
+        """Parse structured sections from Algolia descriptionFull RSS XML tags."""
         import html as html_mod
+        import warnings
+        from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 
-        # Decode HTML entities
+        warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
+
         text = html_mod.unescape(text)
 
-        # Known section headers (case-insensitive matching)
-        section_patterns = [
-            ("short_description", r"SHORT\s+DESCRIPTION"),
-            ("abstract", r"ABSTRACT"),
-            ("background", r"BACKGROUND"),
-            ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
-            ("development_stage", r"DEVELOPMENT\s+STAGE"),
-            ("applications", r"APPLICATIONS"),
-            ("advantages", r"ADVANTAGES"),
-            ("publications", r"PUBLICATIONS"),
-            ("ip_status", r"IP\s+STATUS"),
-            ("benefit", r"BENEFITS?"),
-            ("inventors_section", r"INVENTORS?"),
-            ("technical_problem", r"TECHNICAL\s+PROBLEM"),
-            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
-        ]
-
-        # Build a combined pattern to split text at section headers
-        all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
-        header_re = re.compile(rf"\s*(?:{all_headers})\s*", re.IGNORECASE)
+        tag_mapping = {
+            "AlgoliaSummary": "short_description",
+            "Background": "background",
+            "Technology": "solution",
+            "Advantages": "advantages",
+            "Application": "applications",
+            "Applications": "applications",
+            "Publication": "publications",
+            "Publications": "publications",
+            "PatentStatus": "ip_status",
+            "StageOfDevelopment": "development_stage",
+        }
 
         sections = {}
-        parts = header_re.split(text)
-
-        # Find which named group matched for each split
-        current_key = None
-        for part in parts:
-            if part is None:
+        for rss_tag, field_name in tag_mapping.items():
+            pattern = rf"<RSS\.{rss_tag}>(.*?)</RSS\.{rss_tag}>"
+            match = re.search(pattern, text, re.DOTALL)
+            if not match:
                 continue
-            part = part.strip()
-            if not part:
+            raw_html = match.group(1).strip()
+            if not raw_html:
                 continue
 
-            # Check if this part is a section header
-            matched_key = None
-            for key, pat in section_patterns:
-                if re.fullmatch(pat, part, re.IGNORECASE):
-                    matched_key = key
-                    break
+            # Publications: extract <a> tags with links
+            if field_name == "publications":
+                soup = BeautifulSoup(raw_html, "html.parser")
+                links = soup.find_all("a", href=True)
+                if links:
+                    pubs = []
+                    for a in links:
+                        link_text = a.get_text(strip=True)
+                        link_url = a["href"]
+                        if link_text or link_url:
+                            pubs.append({"text": link_text or link_url, "url": link_url})
+                    if pubs:
+                        sections["publications"] = pubs
+                        continue
+                # No links found — store as plain text
+                plain = re.sub(r"<[^>]+>", " ", raw_html)
+                plain = re.sub(r"&nbsp;", " ", plain)
+                plain = re.sub(r"\s+", " ", plain).strip()
+                if plain:
+                    sections["publications"] = plain
+                continue
 
-            if matched_key:
-                current_key = matched_key
-            elif current_key:
-                if current_key == "inventors_section":
-                    sections[current_key] = part
-                else:
-                    cleaned = re.sub(r"\s+", " ", part).strip()
-                    if cleaned:
-                        sections[current_key] = cleaned
+            # Advantages/applications: try <li> extraction first
+            if field_name in ("advantages", "applications"):
+                soup = BeautifulSoup(raw_html, "html.parser")
+                li_items = soup.find_all("li")
+                if li_items:
+                    items = [li.get_text(strip=True) for li in li_items if li.get_text(strip=True)]
+                    if items:
+                        sections[field_name] = items
+                        continue
+                # Fall back: strip HTML but preserve tabs/newlines as delimiters
+                content = re.sub(r"<[^>]+>", "\n", raw_html)
+                content = re.sub(r"&nbsp;", " ", content)
+                # Split on tabs, newlines, or bullet characters BEFORE collapsing whitespace
+                items = re.split(r"\t+|\n+|•|►|■", content)
+                items = [re.sub(r"\s+", " ", item).strip() for item in items if item.strip()]
+                if items:
+                    sections[field_name] = items
+                continue
 
-        inv_text = sections.pop("inventors_section", "")
-        if inv_text:
-            inv_list = re.split(r"\s{2,}|\t|\n|•|;", inv_text)
-            inventors = [
-                re.sub(r"\*$", "", inv.strip().rstrip(",")).strip()
-                for inv in inv_list
-                if inv.strip() and len(inv.strip()) > 1
-                and not re.match(r"^[\d\W]+$", inv.strip())
-            ]
-            if inventors:
-                sections["inventors"] = inventors
+            # Default: strip HTML tags
+            content = re.sub(r"<[^>]+>", " ", raw_html)
+            content = re.sub(r"&nbsp;", " ", content)
+            content = re.sub(r"\s+", " ", content).strip()
+            if not content:
+                continue
+            sections[field_name] = content
+
+        # Extract TRL from development_stage
+        if sections.get("development_stage"):
+            trl_match = re.search(r"TRL\s*(\d+(?:\s*[-–]\s*\d+)?)", sections["development_stage"], re.IGNORECASE)
+            if trl_match:
+                sections["trl"] = trl_match.group(1).strip()
 
         return sections
 

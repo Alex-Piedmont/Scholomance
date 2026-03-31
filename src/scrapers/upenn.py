@@ -97,10 +97,10 @@ class UPennScraper(BaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
-                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
-                        tech.description = detail["full_description"]
+                    if detail.get("short_description") and not tech.description:
+                        tech.description = detail["short_description"]
+                    elif detail.get("short_description") and tech.description and len(detail["short_description"]) > len(tech.description):
+                        tech.description = detail["short_description"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):
@@ -224,7 +224,7 @@ class UPennScraper(BaseScraper):
             # Description from main content
             desc_div = soup.select_one(".c_content, .js-text, .description, .product-description-box")
             if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+                detail["short_description"] = desc_div.get_text(separator="\n", strip=True)
 
             # Parse sections by h2/h3/strong headings
             for heading in soup.find_all(["h2", "h3", "strong"]):
@@ -236,9 +236,11 @@ class UPennScraper(BaseScraper):
                 while nxt:
                     if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
                         break
+                    if nxt.find(["h2", "h3"]):
+                        break
                     if nxt.name == "ul":
                         for li in nxt.find_all("li"):
-                            t = li.get_text(strip=True)
+                            t = li.get_text(separator=" ", strip=True)
                             if t:
                                 items.append(t)
                     elif nxt.name == "p" and nxt.get_text(strip=True):
@@ -249,26 +251,42 @@ class UPennScraper(BaseScraper):
                 if not items:
                     continue
                 if "problem" in htxt:
-                    detail["problem"] = " ".join(items)
+                    detail["technical_problem"] = " ".join(items)
                 elif "solution" in htxt:
                     detail["solution"] = " ".join(items)
-                elif "technology" in htxt and "full_description" not in detail:
-                    detail["full_description"] = "\n".join(items)
+                elif "technology" in htxt:
+                    detail["benefit"] = "\n".join(items)
                 elif "advantage" in htxt or "benefit" in htxt:
                     detail["advantages"] = items
                 elif "application" in htxt:
                     detail["applications"] = items
                 elif "stage" in htxt or "development" in htxt:
-                    detail["development_stage"] = " ".join(items)
+                    # Items may be concatenated without delimiters (e.g. "ConceptProof of Concept")
+                    # Split on known stage names
+                    raw = " ".join(items)
+                    stages = re.split(r"(?<=[a-z])(?=[A-Z])", raw)
+                    detail["development_stage"] = stages if len(stages) > 1 else items
                 elif "partnership" in htxt or "desired" in htxt:
-                    detail["desired_partnerships"] = items
+                    # Items may be concatenated (e.g. "LicenseCo-development")
+                    split_items = []
+                    for item in items:
+                        parts = re.split(r"(?<=[a-z])(?=[A-Z])", item)
+                        split_items.extend(parts)
+                    detail["desired_partnerships"] = split_items
                 elif "intellectual" in htxt or "ip" in htxt:
-                    detail["ip_info"] = " ".join(items)
+                    detail["ip_status"] = " ".join(items)
 
             # Keywords from #keywordLinks div
             kw_div = soup.find(id="keywordLinks")
             if kw_div:
-                keywords = [a.get_text(strip=True) for a in kw_div.find_all("a") if a.get_text(strip=True)]
+                keywords = []
+                for a in kw_div.find_all("a"):
+                    text = a.get_text(strip=True)
+                    if text:
+                        # Strip hierarchy prefix like "Technology Classifications > "
+                        text = re.sub(r"^.*>\s*", "", text).strip()
+                        if text:
+                            keywords.append(text)
                 if keywords:
                     detail["categories"] = keywords
 

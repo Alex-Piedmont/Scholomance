@@ -28,10 +28,10 @@ class PrincetonScraper(RSSBaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
-                    if detail.get("full_description") and not tech.description:
-                        tech.description = detail["full_description"]
-                    elif detail.get("full_description") and tech.description and len(detail["full_description"]) > len(tech.description):
-                        tech.description = detail["full_description"]
+                    if detail.get("background") and not tech.description:
+                        tech.description = detail["background"]
+                    elif detail.get("background") and tech.description and len(detail["background"]) > len(tech.description):
+                        tech.description = detail["background"]
                     if detail.get("inventors"):
                         tech.innovators = detail["inventors"]
                     if detail.get("categories"):
@@ -121,20 +121,19 @@ class PrincetonScraper(RSSBaseScraper):
             if pub_match:
                 detail["web_published"] = pub_match.group(1).strip()
 
-            # Main description from c_content div or main content area
-            desc_div = soup.select_one(".c_content, .description, .product-description-box")
-            if desc_div:
-                detail["full_description"] = desc_div.get_text(separator="\n", strip=True)
+            # NOTE: .c_content captures the entire page (title, case ID, contacts, etc.)
+            # so we do NOT extract full_description from it. Instead, we rely on
+            # the heading-based parser below to populate specific fields.
 
             # Parse sections by strong/h2/h3 headings
             for heading in soup.find_all(["h2", "h3", "strong"]):
                 htxt = heading.get_text(strip=True).lower()
                 items = []
                 nxt = heading.find_next_sibling()
-                if not nxt and heading.parent:
-                    nxt = heading.parent.find_next_sibling()
                 while nxt:
-                    if nxt.name in ("h2", "h3", "strong") and nxt.get_text(strip=True):
+                    if nxt.name in ("h2", "h3") and nxt.get_text(strip=True):
+                        break
+                    if nxt.name == "strong" and nxt.get_text(strip=True):
                         break
                     if nxt.name == "ul":
                         for li in nxt.find_all("li"):
@@ -146,17 +145,18 @@ class PrincetonScraper(RSSBaseScraper):
                     nxt = nxt.find_next_sibling()
                 if not items:
                     continue
-                if "executive summary" in htxt or "description" in htxt or "summary" in htxt:
-                    if "full_description" not in detail:
-                        detail["full_description"] = "\n".join(items)
+                if "executive summary" in htxt or "description" in htxt or "summary" in htxt or "docket" in htxt:
+                    detail["background"] = "\n".join(items)
                 elif "benefit" in htxt or "advantage" in htxt:
                     detail["advantages"] = items
                 elif "application" in htxt:
                     detail["applications"] = items
+                elif "intellectual property" in htxt:
+                    detail["ip_text"] = " ".join(items)
                 elif "development" in htxt or "stage" in htxt:
                     detail["development_stage"] = " ".join(items)
                 elif "problem" in htxt:
-                    detail["problem"] = " ".join(items)
+                    detail["technical_problem"] = " ".join(items)
                 elif "solution" in htxt:
                     detail["solution"] = " ".join(items)
 
