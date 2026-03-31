@@ -206,7 +206,11 @@ class UMichScraper(BaseScraper):
                     text = " ".join(parts)
 
                     if "overview" in h_lower:
-                        detail["subtitle"] = "\n\n".join(parts)
+                        # First part is summary; subsequent parts are bullet items
+                        if len(parts) > 1:
+                            detail["subtitle"] = parts[0] + "\n\n" + "\n".join(f"- {p}" for p in parts[1:])
+                        else:
+                            detail["subtitle"] = parts[0] if parts else ""
                     elif "background" in h_lower:
                         detail["background"] = text
                     elif "innovation" in h_lower or "solution" in h_lower:

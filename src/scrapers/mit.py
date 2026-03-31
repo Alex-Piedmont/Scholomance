@@ -65,6 +65,22 @@ class MITScraper(BaseScraper):
                         break
 
                     for tech in technologies:
+                        # Fetch detail page for each technology
+                        if tech.url:
+                            try:
+                                detail = await self.scrape_technology_detail(tech.url)
+                                if detail:
+                                    tech.raw_data.update(detail)
+                                    # Also update top-level description if background available
+                                    if "background" in detail and not tech.description:
+                                        tech.description = detail["background"]
+                                    # Clear redundant description when background+solution exist
+                                    if tech.raw_data.get("background") and tech.raw_data.get("solution"):
+                                        tech.raw_data["description"] = None
+                                await asyncio.sleep(1)  # Rate limiting between detail requests
+                            except Exception as e:
+                                logger.debug(f"Error fetching detail for {tech.url}: {e}")
+
                         self._tech_count += 1
                         yield tech
 
@@ -136,7 +152,10 @@ class MITScraper(BaseScraper):
             if not link:
                 return None
 
-            title = link.get_text(strip=True)
+            # Remove SVG elements and use space separator to fix title spacing
+            for svg in link.find_all("svg"):
+                svg.decompose()
+            title = link.get_text(" ", strip=True)
             if not title:
                 return None
 
@@ -150,9 +169,9 @@ class MITScraper(BaseScraper):
 
             # Get case number if present
             case_number = None
-            details = teaser.find("div", class_="tech-brief-teaser__details-text")
+            details = teaser.find("span", class_="tech-brief-teaser__details-text")
             if details:
-                case_match = re.search(r"Case #([A-Z0-9]+)", details.get_text())
+                case_match = re.search(r"#(\w+)", details.get_text())
                 if case_match:
                     case_number = case_match.group(1)
 
@@ -168,10 +187,9 @@ class MITScraper(BaseScraper):
             categories = []
             tech_areas = teaser.find("div", class_="tech-brief-teaser__categories--tech-areas")
             if tech_areas:
-                for cat in tech_areas.find_all("a"):
-                    cat_text = cat.get_text(strip=True)
-                    if cat_text:
-                        categories.append(cat_text)
+                text = tech_areas.get_text(strip=True)
+                text = re.sub(r"^Technology Areas:\s*", "", text)
+                categories = [c.strip() for c in text.split("/") if c.strip()]
 
             # Get impact areas
             impact_areas = []
@@ -188,8 +206,8 @@ class MITScraper(BaseScraper):
             if researchers_div:
                 researchers_text = researchers_div.get_text(strip=True)
                 if researchers_text:
-                    # Parse researcher names (usually comma-separated)
-                    researchers = [r.strip() for r in researchers_text.split(",") if r.strip()]
+                    # Parse researcher names (separated by " / ")
+                    researchers = [{"name": r.strip()} for r in researchers_text.split(" / ") if r.strip()]
 
             # Check if licensed
             is_licensed = teaser.find("span", class_="tech-brief-teaser__license-label--licensed") is not None
@@ -212,7 +230,7 @@ class MITScraper(BaseScraper):
                 url=url,
                 description=description,
                 keywords=categories if categories else None,
-                innovators=researchers if researchers else None,
+                innovators=[r["name"] for r in researchers] if researchers else None,
                 raw_data=raw_data,
             )
 
@@ -242,28 +260,85 @@ class MITScraper(BaseScraper):
 
                 detail = {}
 
-                # Get full description
-                content = soup.find("div", class_="tech-brief-content")
-                if content:
-                    detail["full_description"] = content.get_text(strip=True)
+                # Get background from intro section
+                intro = soup.find("div", class_="tech-brief-details__intro")
+                if intro:
+                    detail["background"] = intro.get_text(strip=True)
 
-                # Get problem/solution sections if present
-                problem = soup.find("div", class_="tech-brief-problem")
-                if problem:
-                    detail["problem"] = problem.get_text(strip=True)
+                # Parse body sections by h2 headings
+                body = soup.find("div", class_="tech-brief-body__inner")
+                if body:
+                    headings = body.find_all("h2")
+                    for heading in headings:
+                        heading_text = heading.get_text(strip=True).lower()
 
-                solution = soup.find("div", class_="tech-brief-solution")
-                if solution:
-                    detail["solution"] = solution.get_text(strip=True)
+                        # Collect content between this heading and the next
+                        content_parts = []
+                        sibling = heading.find_next_sibling()
+                        while sibling and sibling.name != "h2":
+                            content_parts.append(sibling)
+                            sibling = sibling.find_next_sibling()
 
-                # Get advantages
-                advantages = soup.find("div", class_="tech-brief-advantages")
-                if advantages:
-                    detail["advantages"] = advantages.get_text(strip=True)
+                        if "technology" in heading_text and "problem" not in heading_text:
+                            text = " ".join(p.get_text(strip=True) for p in content_parts if p.get_text(strip=True))
+                            if text:
+                                detail["solution"] = text
+                        elif "problem" in heading_text:
+                            text = " ".join(p.get_text(strip=True) for p in content_parts if p.get_text(strip=True))
+                            if text:
+                                detail["technical_problem"] = text
+                        elif "advantage" in heading_text:
+                            # Advantages are typically in ul > li items
+                            advantages = []
+                            for part in content_parts:
+                                for li in part.find_all("li"):
+                                    li_text = li.get_text(strip=True)
+                                    if li_text:
+                                        advantages.append(li_text)
+                            # If no list items found, try plain text
+                            if not advantages:
+                                text = " ".join(p.get_text(strip=True) for p in content_parts if p.get_text(strip=True))
+                                if text:
+                                    advantages = [text]
+                            if advantages:
+                                detail["advantages"] = advantages
+
+                # Get IP status from IP section
+                ip_section = soup.find("div", class_="tech-brief-details__ip")
+                if ip_section:
+                    ip_items = ip_section.find_all("li", class_="tech-brief-ip__item")
+                    if ip_items:
+                        ip_texts = []
+                        for li in ip_items:
+                            strong = li.find("strong")
+                            # Extract patent title from <strong> before decomposing
+                            patent_title = strong.get_text(strip=True) if strong else ""
+                            if strong:
+                                strong.decompose()
+                            # Remove patent link element
+                            for a_tag in li.find_all("a"):
+                                a_tag.decompose()
+                            # Normalize whitespace and clean pipe separators
+                            raw_text = " ".join(li.get_text().split())
+                            country_status = raw_text.strip(" |")
+                            # Format as "Country | Status"
+                            country_status = re.sub(r"\s*\|\s*", " | ", country_status).strip(" |")
+                            parts = []
+                            if patent_title:
+                                parts.append(patent_title)
+                            if country_status:
+                                parts.append(country_status)
+                            if parts:
+                                ip_texts.append("\n".join(parts))
+                        if ip_texts:
+                            detail["ip_status"] = "\n".join(ip_texts)
 
                 # Extract patent information from page content
                 patent_info = self._extract_patent_info(html)
                 if patent_info:
+                    # Don't overwrite structured ip_status from IP section
+                    if "ip_status" in detail and "ip_status" in patent_info:
+                        del patent_info["ip_status"]
                     detail.update(patent_info)
 
                 return detail

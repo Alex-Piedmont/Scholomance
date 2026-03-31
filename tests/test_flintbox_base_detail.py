@@ -241,8 +241,7 @@ async def test_parse_api_item_with_detail_raw_data_has_all_fields():
     assert rd["ip_status"] == "Filed"
     assert rd["ip_number"] == "IP-001"
     assert rd["abstract"] is not None
-    assert rd["researchers"] is not None
-    assert len(rd["researchers"]) == 2
+    assert rd["researchers"] == "Dr. Jane Smith\nDr. Bob Jones"
     assert rd["documents"] is not None
     assert rd["contacts"] is not None
     assert rd["flintbox_tags"] == ["Machine Learning", "Healthcare"]

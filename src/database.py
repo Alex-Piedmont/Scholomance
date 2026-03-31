@@ -14,6 +14,7 @@ from sqlalchemy import (
     Boolean,
     DECIMAL,
     ForeignKey,
+    UniqueConstraint,
     func,
     or_,
     Index,
@@ -180,6 +181,79 @@ class ScrapeLog(Base):
         return f"<ScrapeLog(id={self.id}, university={self.university}, status={self.status})>"
 
 
+class UniversityQAStatus(Base):
+    """Tracks QA approval status per university."""
+
+    __tablename__ = "university_qa_status"
+
+    id = Column(Integer, primary_key=True)
+    university = Column(String(100), unique=True, nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    approved_at = Column(DateTime(timezone=True))
+    notes = Column(Text)
+
+    def __repr__(self):
+        return f"<UniversityQAStatus(university={self.university}, status={self.status})>"
+
+
+class QASample(Base):
+    """Fixed QA sample of technology IDs per university."""
+
+    __tablename__ = "qa_samples"
+
+    id = Column(Integer, primary_key=True)
+    university = Column(String(100), nullable=False)
+    technology_id = Column(Integer, ForeignKey("technologies.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("university", "technology_id"),
+    )
+
+    def __repr__(self):
+        return f"<QASample(university={self.university}, technology_id={self.technology_id})>"
+
+
+class QACorrection(Base):
+    """Ledger of QA corrections applied to technology raw_data fields."""
+
+    __tablename__ = "qa_corrections"
+
+    id = Column(Integer, primary_key=True)
+    technology_id = Column(Integer, ForeignKey("technologies.id", ondelete="CASCADE"), nullable=False)
+    field_name = Column(String(100), nullable=False)
+    corrected_value = Column(JSONB, nullable=False)
+    original_scraped_value = Column(JSONB)
+    corrected_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("technology_id", "field_name"),
+    )
+
+    def __repr__(self):
+        return f"<QACorrection(technology_id={self.technology_id}, field_name={self.field_name})>"
+
+
+class QAConflict(Base):
+    """Flags when a re-scrape conflicts with an existing QA correction."""
+
+    __tablename__ = "qa_conflicts"
+
+    id = Column(Integer, primary_key=True)
+    technology_id = Column(Integer, ForeignKey("technologies.id", ondelete="CASCADE"), nullable=False)
+    field_name = Column(String(100), nullable=False)
+    corrected_value = Column(JSONB, nullable=False)
+    new_scraped_value = Column(JSONB, nullable=False)
+    detected_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("technology_id", "field_name"),
+    )
+
+    def __repr__(self):
+        return f"<QAConflict(technology_id={self.technology_id}, field_name={self.field_name})>"
+
+
 class ClassificationLog(Base):
     """SQLAlchemy model for classification_logs table."""
 
@@ -325,7 +399,6 @@ class Database:
                     existing.title = tech_data.title
                     existing.description = tech_data.description
                     existing.url = tech_data.url
-                    existing.raw_data = tech_data.raw_data
                     existing.keywords = tech_data.keywords
                     existing.updated_at = datetime.now(timezone.utc)
                     # Update patent status
@@ -333,6 +406,42 @@ class Database:
                     existing.patent_status_confidence = patent_result.confidence
                     existing.patent_status_source = patent_result.source
                     existing.last_patent_check_at = datetime.now(timezone.utc)
+
+                    # Merge raw_data respecting QA corrections
+                    corrections = (
+                        s.query(QACorrection)
+                        .filter(QACorrection.technology_id == existing.id)
+                        .all()
+                    )
+                    new_raw = dict(tech_data.raw_data or {})
+                    if corrections:
+                        corrections_map = {c.field_name: c.corrected_value for c in corrections}
+                        for field_name, corrected_value in corrections_map.items():
+                            new_scraped = new_raw.get(field_name)
+                            if new_scraped != corrected_value:
+                                # Conflict: upsert into qa_conflicts
+                                existing_conflict = (
+                                    s.query(QAConflict)
+                                    .filter(
+                                        QAConflict.technology_id == existing.id,
+                                        QAConflict.field_name == field_name,
+                                    )
+                                    .first()
+                                )
+                                if existing_conflict:
+                                    existing_conflict.new_scraped_value = new_scraped
+                                    existing_conflict.detected_at = datetime.now(timezone.utc)
+                                else:
+                                    s.add(QAConflict(
+                                        technology_id=existing.id,
+                                        field_name=field_name,
+                                        corrected_value=corrected_value,
+                                        new_scraped_value=new_scraped,
+                                    ))
+                                # Keep corrected value in raw_data
+                                new_raw[field_name] = corrected_value
+                    existing.raw_data = new_raw
+
                     updated_count += 1
                 else:
                     tech = Technology(
@@ -934,6 +1043,229 @@ class Database:
                 session.expunge(assessment)
                 make_transient(assessment)
             return assessment
+
+    def update_raw_data_fields(
+        self,
+        uuid: str,
+        updates: dict[str, Any],
+    ) -> Optional[Technology]:
+        """
+        Update specific fields in a technology's raw_data JSONB.
+
+        Merges updates into existing raw_data without replacing the whole object.
+
+        Args:
+            uuid: Technology UUID
+            updates: Dictionary of field_name -> new_value to merge
+
+        Returns:
+            Updated Technology object, or None if not found
+        """
+        with self.get_session() as session:
+            tech = session.query(Technology).filter(Technology.uuid == uuid).first()
+            if not tech:
+                return None
+
+            current_raw_data = dict(tech.raw_data or {})
+            for key, value in updates.items():
+                if value is None:
+                    current_raw_data.pop(key, None)
+                else:
+                    current_raw_data[key] = value
+            tech.raw_data = current_raw_data
+            tech.updated_at = datetime.now(timezone.utc)
+
+            session.flush()
+            session.refresh(tech)
+            # Return a detached copy
+            from sqlalchemy.orm import make_transient
+            _ = (tech.id, tech.uuid, tech.university, tech.tech_id, tech.title,
+                 tech.description, tech.url, tech.raw_data, tech.updated_at)
+            session.expunge(tech)
+            make_transient(tech)
+            return tech
+
+    # ── QA Methods ──────────────────────────────────────────────────
+
+    def record_corrections(
+        self,
+        technology_id: int,
+        updates: dict[str, Any],
+    ) -> None:
+        """Record QA corrections for a technology's fields (upsert)."""
+        with self.get_session() as session:
+            tech = session.query(Technology).filter(Technology.id == technology_id).first()
+            original_raw = dict(tech.raw_data or {}) if tech else {}
+
+            for field_name, corrected_value in updates.items():
+                existing = (
+                    session.query(QACorrection)
+                    .filter(
+                        QACorrection.technology_id == technology_id,
+                        QACorrection.field_name == field_name,
+                    )
+                    .first()
+                )
+                if existing:
+                    existing.corrected_value = corrected_value
+                    existing.corrected_at = datetime.now(timezone.utc)
+                else:
+                    correction = QACorrection(
+                        technology_id=technology_id,
+                        field_name=field_name,
+                        corrected_value=corrected_value,
+                        original_scraped_value=original_raw.get(field_name),
+                    )
+                    session.add(correction)
+
+    def get_corrections_for_technology(self, technology_id: int) -> dict[str, Any]:
+        """Get all corrections for a technology as field_name → corrected_value."""
+        with self.get_session() as session:
+            rows = (
+                session.query(QACorrection)
+                .filter(QACorrection.technology_id == technology_id)
+                .all()
+            )
+            return {r.field_name: r.corrected_value for r in rows}
+
+    def get_qa_status(self, university: str) -> Optional[UniversityQAStatus]:
+        """Get QA approval status for a university."""
+        with self.get_session() as session:
+            return (
+                session.query(UniversityQAStatus)
+                .filter(UniversityQAStatus.university == university)
+                .first()
+            )
+
+    def set_qa_status(self, university: str, status: str) -> UniversityQAStatus:
+        """Set QA status for a university (upsert)."""
+        with self.get_session() as session:
+            existing = (
+                session.query(UniversityQAStatus)
+                .filter(UniversityQAStatus.university == university)
+                .first()
+            )
+            if existing:
+                existing.status = status
+                if status == "approved":
+                    existing.approved_at = datetime.now(timezone.utc)
+                else:
+                    existing.approved_at = None
+                return existing
+            else:
+                row = UniversityQAStatus(
+                    university=university,
+                    status=status,
+                    approved_at=datetime.now(timezone.utc) if status == "approved" else None,
+                )
+                session.add(row)
+                return row
+
+    def get_sample(self, university: str) -> list[int]:
+        """Get QA sample technology IDs for a university."""
+        with self.get_session() as session:
+            rows = (
+                session.query(QASample.technology_id)
+                .filter(QASample.university == university)
+                .order_by(QASample.technology_id)
+                .all()
+            )
+            return [r[0] for r in rows]
+
+    def create_sample(self, university: str) -> list[int]:
+        """Create a QA sample (first 10 by id) for a university. Replaces existing."""
+        with self.get_session() as session:
+            # Delete existing sample
+            session.query(QASample).filter(QASample.university == university).delete()
+
+            # Select first 10 technologies by id
+            tech_ids = (
+                session.query(Technology.id)
+                .filter(Technology.university == university)
+                .order_by(Technology.id)
+                .limit(10)
+                .all()
+            )
+            ids = [t[0] for t in tech_ids]
+
+            for tid in ids:
+                session.add(QASample(university=university, technology_id=tid))
+
+            return ids
+
+    def get_conflicts(self, university: str) -> list[QAConflict]:
+        """Get unresolved QA conflicts for a university."""
+        with self.get_session() as session:
+            rows = (
+                session.query(QAConflict)
+                .join(Technology, QAConflict.technology_id == Technology.id)
+                .filter(Technology.university == university)
+                .order_by(QAConflict.detected_at.desc())
+                .all()
+            )
+            from sqlalchemy.orm import make_transient
+            for obj in rows:
+                _ = (obj.id, obj.technology_id, obj.field_name,
+                     obj.corrected_value, obj.new_scraped_value, obj.detected_at)
+                session.expunge(obj)
+                make_transient(obj)
+            return rows
+
+    def resolve_conflict(self, conflict_id: int, resolution: str) -> bool:
+        """
+        Resolve a QA conflict.
+
+        resolution = "keep_correction": delete the conflict, keep correction
+        resolution = "accept_new": apply new value to raw_data, delete correction and conflict
+        """
+        with self.get_session() as session:
+            conflict = session.query(QAConflict).filter(QAConflict.id == conflict_id).first()
+            if not conflict:
+                return False
+
+            if resolution == "accept_new":
+                # Update raw_data with the new scraped value
+                tech = session.query(Technology).filter(Technology.id == conflict.technology_id).first()
+                if tech:
+                    current = dict(tech.raw_data or {})
+                    current[conflict.field_name] = conflict.new_scraped_value
+                    tech.raw_data = current
+                    tech.updated_at = datetime.now(timezone.utc)
+
+                # Delete the correction (field is no longer protected)
+                session.query(QACorrection).filter(
+                    QACorrection.technology_id == conflict.technology_id,
+                    QACorrection.field_name == conflict.field_name,
+                ).delete()
+
+            # Delete the conflict in both cases
+            session.delete(conflict)
+            return True
+
+    def get_all_qa_statuses(self) -> dict[str, UniversityQAStatus]:
+        """Get all QA statuses as university → status object."""
+        with self.get_session() as session:
+            rows = session.query(UniversityQAStatus).all()
+            from sqlalchemy.orm import make_transient
+            result = {}
+            for obj in rows:
+                _ = (obj.id, obj.university, obj.status, obj.approved_at, obj.notes)
+                session.expunge(obj)
+                make_transient(obj)
+                result[obj.university] = obj
+            return result
+
+    def count_conflicts_by_university(self) -> dict[str, int]:
+        """Get conflict counts grouped by university."""
+        with self.get_session() as session:
+            rows = (
+                session.query(Technology.university, func.count(QAConflict.id))
+                .join(Technology, QAConflict.technology_id == Technology.id)
+                .group_by(Technology.university)
+                .all()
+            )
+            return {uni: count for uni, count in rows}
+
 
 # Global database instance
 db = Database()

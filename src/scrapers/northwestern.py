@@ -8,6 +8,20 @@ from loguru import logger
 
 from .base import BaseScraper, Technology
 
+# Patterns that indicate an "inventor" entry is actually a title, affiliation, or metadata
+_INVENTOR_NOISE_RE = re.compile(
+    r"^(?:Professor|Director|Associate|Assistant|Chair|Dean|Fellow)\b"
+    r"|(?:University|School|College|Institute|Department|Division|Office)\b"
+    r"|\bTech\s*ID\b"
+    r"|^\*",
+    re.IGNORECASE,
+)
+
+
+def _is_inventor_noise(text: str) -> bool:
+    """Return True if text looks like a title/affiliation rather than a person name."""
+    return bool(_INVENTOR_NOISE_RE.search(text))
+
 
 class NorthwesternScraper(BaseScraper):
     """
@@ -146,7 +160,11 @@ class NorthwesternScraper(BaseScraper):
             inventors = []
             inventors_list = item.get("inventors")
             if isinstance(inventors_list, list):
-                inventors = [inv.strip() for inv in inventors_list if isinstance(inv, str) and inv.strip()]
+                inventors = [
+                    inv.strip() for inv in inventors_list
+                    if isinstance(inv, str) and inv.strip()
+                    and not _is_inventor_noise(inv.strip())
+                ]
             if not inventors:
                 inventors_str = item.get("finalPathInventors", "")
                 if inventors_str:
@@ -211,25 +229,27 @@ class NorthwesternScraper(BaseScraper):
         text = html_mod.unescape(text)
 
         # Known section headers (case-insensitive matching)
+        # Word boundaries (\b) prevent matching inside words (e.g. "resolution" matching SOLUTION)
         section_patterns = [
-            ("short_description", r"SHORT\s+DESCRIPTION"),
-            ("abstract", r"ABSTRACT"),
-            ("background", r"BACKGROUND"),
-            ("market_opportunity", r"MARKET\s+OPPORTUNITY"),
-            ("development_stage", r"DEVELOPMENT\s+STAGE"),
-            ("applications", r"APPLICATIONS"),
-            ("advantages", r"ADVANTAGES"),
-            ("publications", r"PUBLICATIONS"),
-            ("ip_status", r"IP\s+STATUS"),
-            ("benefit", r"BENEFITS?"),
-            ("inventors_section", r"INVENTORS?"),
-            ("technical_problem", r"TECHNICAL\s+PROBLEM"),
-            ("solution", r"(?:TECHNICAL\s+)?SOLUTION"),
+            ("short_description", r"\bSHORT\s+DESCRIPTION\b"),
+            ("abstract", r"\bABSTRACT\b"),
+            ("background", r"\bBACKGROUND\b"),
+            ("market_opportunity", r"\bMARKET\s+OPPORTUNITY\b"),
+            ("development_stage", r"\bDEVELOPMENT\s+STAGE\b"),
+            ("applications", r"\bAPPLICATIONS\b"),
+            ("advantages", r"\bADVANTAGES\b"),
+            ("publications", r"\bPUBLICATIONS\b"),
+            ("ip_status", r"\bIP\s+STATUS\b"),
+            ("benefit", r"\bBENEFITS?\b"),
+            ("inventors_section", r"\bINVENTORS?\b"),
+            ("technical_problem", r"\bTECHNICAL\s+PROBLEM\b"),
+            ("solution", r"\b(?:TECHNICAL\s+)?SOLUTION\b"),
         ]
 
         # Build a combined pattern to split text at section headers
         all_headers = "|".join(f"(?P<s{i}>{pat})" for i, (_, pat) in enumerate(section_patterns))
-        header_re = re.compile(rf"\s*(?:{all_headers})\s*", re.IGNORECASE)
+        # Require 2+ whitespace before header to avoid mid-sentence matches
+        header_re = re.compile(rf"(?:\s{{2,}}|^)(?:{all_headers})\s*", re.IGNORECASE)
 
         sections = {}
         parts = header_re.split(text)
@@ -256,6 +276,12 @@ class NorthwesternScraper(BaseScraper):
                 if current_key == "inventors_section":
                     # Keep raw text for inventor name splitting
                     sections[current_key] = part
+                elif current_key in ("advantages", "applications"):
+                    # Items are \n or \n\t delimited in source; split on newlines first
+                    lines = [re.sub(r"\s+", " ", ln).strip() for ln in part.split("\n")]
+                    items = [ln for ln in lines if ln and ln != "."]
+                    if items:
+                        sections[current_key] = "\n".join(f"- {it}" for it in items)
                 else:
                     cleaned = re.sub(r"\s+", " ", part).strip()
                     if cleaned:

@@ -193,10 +193,6 @@ class PurdueScraper(TechPublisherScraper):
             if categories:
                 detail["categories"] = categories
 
-            # Use keywords as categories if no category links found
-            if not detail.get("categories") and detail.get("keywords"):
-                detail["categories"] = detail["keywords"]
-
             # Contact
             contact = {}
             email_link = soup.select_one("a[href^='mailto:']")

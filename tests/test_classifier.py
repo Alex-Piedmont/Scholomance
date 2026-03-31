@@ -474,3 +474,21 @@ class TestClassifierEdgeCases:
 
         assert isinstance(result, ClassificationResult)
         assert result.top_field == "MedTech"
+
+    @patch("src.classifier.Anthropic")
+    def test_classify_parse_error_returns_classification_error(self, mock_anthropic):
+        """Test classify returns ClassificationError on unparseable JSON response."""
+        mock_response = MagicMock()
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 50
+        mock_response.content = [MagicMock(text="not json at all {{{")]
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_response
+        mock_anthropic.return_value = mock_client
+
+        classifier = Classifier(api_key="test-key")
+        result = classifier.classify("Test", "Test description")
+
+        assert isinstance(result, ClassificationError)
+        assert result.error_type == "parse_error"

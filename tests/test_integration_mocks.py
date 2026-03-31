@@ -250,12 +250,29 @@ class TestConfigSettings:
 
     def test_settings_defaults(self):
         """Test settings have reasonable defaults."""
-        from src.config import Settings
-        s = Settings()
+        import os
+        from unittest.mock import patch as _patch
 
-        assert s.postgres_port == 5432
-        assert s.scrape_delay_seconds >= 0
-        assert s.request_timeout > 0
+        # Clear env vars that override defaults so we test actual defaults,
+        # not whatever happens to be in .env or the environment.
+        env_overrides = {
+            k: v for k, v in os.environ.items()
+            if k.startswith("POSTGRES_") or k in (
+                "DATABASE_URL", "SCRAPE_DELAY_SECONDS",
+                "REQUEST_TIMEOUT", "MAX_CONCURRENT_REQUESTS",
+            )
+        }
+        with _patch.dict(os.environ, {}, clear=False):
+            # Remove the specific keys that would override defaults
+            for key in env_overrides:
+                os.environ.pop(key, None)
+
+            from src.config import Settings
+            s = Settings(_env_file=None)
+
+            assert s.postgres_port == 5432
+            assert s.scrape_delay_seconds >= 0
+            assert s.request_timeout > 0
 
 
 class TestTechnologyDataClass:
@@ -303,3 +320,77 @@ class TestTechnologyDataClass:
         )
 
         assert tech.raw_data == {}
+
+
+class TestStanfordScraperErrorHandling:
+    """Tests for Stanford scraper error handling paths."""
+
+    @pytest.mark.asyncio
+    async def test_get_total_pages_returns_default_on_error(self):
+        """Test _get_total_pages returns default (100) when it can't determine page count."""
+        scraper = StanfordScraper()
+        scraper._page = AsyncMock()
+        scraper._page.goto = AsyncMock()
+        scraper._page.wait_for_selector = AsyncMock(side_effect=Exception("timeout"))
+        scraper._page.query_selector_all = AsyncMock(return_value=[])
+
+        pages = await scraper._get_total_pages()
+        assert pages == 100
+
+    @pytest.mark.asyncio
+    async def test_scrape_page_returns_empty_on_network_error(self):
+        """Test scrape_page returns empty list on network error."""
+        scraper = StanfordScraper()
+        scraper._page = AsyncMock()
+        scraper._page.goto = AsyncMock(side_effect=Exception("Network error"))
+
+        techs = await scraper.scrape_page(1)
+        assert techs == []
+
+    @pytest.mark.asyncio
+    async def test_init_browser_sets_viewport(self):
+        """Test browser init calls set_viewport_size."""
+        scraper = StanfordScraper()
+
+        with patch("src.scrapers.stanford.async_playwright") as mock_pw:
+            mock_instance = AsyncMock()
+            mock_browser = AsyncMock()
+            mock_page = AsyncMock()
+
+            mock_pw.return_value.start = AsyncMock(return_value=mock_instance)
+            mock_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+            mock_browser.new_page = AsyncMock(return_value=mock_page)
+
+            await scraper._init_browser()
+
+            mock_page.set_viewport_size.assert_called_once()
+
+
+class TestConfigGetDatabaseUrl:
+    """Tests for config get_database_url method."""
+
+    def test_get_database_url_returns_configured_url(self):
+        """Test get_database_url returns the configured URL when set."""
+        from src.config import Settings
+
+        s = Settings()
+        s.database_url = "postgresql://user:pass@host:5432/db"
+
+        url = s.get_database_url()
+        assert "postgresql://" in url
+
+    def test_get_database_url_builds_from_components(self):
+        """Test get_database_url builds URL from individual components when database_url is empty."""
+        from src.config import Settings
+
+        s = Settings()
+        s.database_url = ""
+        s.postgres_user = "testuser"
+        s.postgres_password = "testpass"
+        s.postgres_host = "localhost"
+        s.postgres_port = 5432
+        s.postgres_db = "testdb"
+
+        url = s.get_database_url()
+        assert "testuser" in url
+        assert "localhost" in url

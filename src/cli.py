@@ -70,8 +70,18 @@ def scrape(ctx: click.Context, university: Optional[str], scrape_all: bool, limi
 
     universities = list(SCRAPERS.keys()) if scrape_all else [university]
 
+    failed = []
     for uni in universities:
-        asyncio.run(_scrape_university(uni, limit, ctx.obj["verbose"]))
+        try:
+            asyncio.run(_scrape_university(uni, limit, ctx.obj["verbose"]))
+        except SystemExit:
+            failed.append(uni)
+            if not scrape_all:
+                raise
+            continue
+    if failed:
+        console.print(f"\n[red]Failed universities ({len(failed)}):[/red] {', '.join(failed)}")
+        raise SystemExit(1)
 
 
 async def _scrape_university(university: str, limit: Optional[int], verbose: bool) -> None:

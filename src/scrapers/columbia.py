@@ -77,6 +77,8 @@ class ColumbiaScraper(BaseScraper):
                 detail = await self.scrape_technology_detail(tech.url)
                 if detail:
                     tech.raw_data.update(detail)
+                    if detail.get("title"):
+                        tech.title = detail["title"]
                     if detail.get("description"):
                         tech.description = detail["description"]
                     elif detail.get("meta_description"):
@@ -200,6 +202,11 @@ class ColumbiaScraper(BaseScraper):
                 soup = BeautifulSoup(html, "lxml")
 
                 detail = {"url": url}
+
+                # Extract title from h1
+                h1 = soup.find("h1")
+                if h1:
+                    detail["title"] = h1.get_text(strip=True)
 
                 # Try to extract description from meta tag
                 meta_desc = soup.find("meta", attrs={"name": "description"})

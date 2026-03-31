@@ -28,7 +28,7 @@ class TestGatechScraper:
         """Test Georgia Tech scraper URLs."""
         scraper = GatechScraper()
         assert "gatech.flintbox.com" in scraper.BASE_URL
-        assert "gatech.flintbox.com" in scraper.API_URL
+        assert "gatech.flintbox.com" in scraper.api_url
 
     def test_scraper_delay_configuration(self):
         """Test scraper delay can be configured."""
@@ -93,7 +93,7 @@ class TestUGAScraper:
         """Test UGA scraper URLs."""
         scraper = UGAScraper()
         assert "uga.flintbox.com" in scraper.BASE_URL
-        assert "uga.flintbox.com" in scraper.API_URL
+        assert "uga.flintbox.com" in scraper.api_url
 
     def test_scraper_delay_configuration(self):
         """Test scraper delay can be configured."""
@@ -105,10 +105,10 @@ class TestUGAScraper:
         scraper = UGAScraper()
         assert scraper.delay_seconds == 0.5
 
-    def test_api_data_initialized(self):
-        """Test API data list is initialized."""
+    def test_scraper_initialized(self):
+        """Test UGA scraper initializes correctly."""
         scraper = UGAScraper()
-        assert scraper._api_data == []
+        assert scraper.university_code == "uga"
 
     @pytest.mark.asyncio
     async def test_close_session_when_none(self):

@@ -48,7 +48,7 @@ export function ContentSections({ tech, data }: Props) {
     solutionText, background, benefitHtml, marketApplicationHtml, marketOpportunity,
     developmentStage, keyPoints, applications, applicationsText, advantages,
     advantagesText, technologyValidation, publicationsList, publicationsHtml,
-    ipStatusText, ipNumber, ipUrl, ipText, fullDescription,
+    ipStatusText, ipNumber, ipUrl, ipText, fullDescription, trl,
   } = data
 
   const hasNoContent = !tech.description && !otherHtml && !abstractText && !shortDescription &&
@@ -78,6 +78,7 @@ export function ContentSections({ tech, data }: Props) {
       <TextSection title="Technical Problem" text={technicalProblem} />
       <TextSection title="Solution" text={solutionText} />
       <TextSection title="Background" text={background} />
+      <TextSection title="Full Description" text={fullDescription} />
       <TextSection title="Benefits" text={benefitHtml ? stripHtml(benefitHtml) : undefined} />
 
       {(marketApplicationHtml || marketOpportunity) && (
@@ -88,6 +89,7 @@ export function ContentSections({ tech, data }: Props) {
       )}
 
       <TextSection title="Development Stage" text={developmentStage} />
+      <TextSection title="Technology Readiness Level" text={trl} />
 
       {keyPoints && keyPoints.length > 0 && (
         <BulletSection title="Key Points" items={keyPoints} />

@@ -50,8 +50,12 @@ class Settings(BaseSettings):
 
     def get_database_url(self) -> str:
         """Get the database URL, building from components if not set."""
-        if self.database_url and "postgresql://" in self.database_url:
-            return self.database_url
+        url = self.database_url
+        # Railway may inject postgres:// scheme; SQLAlchemy 2.0 requires postgresql://
+        if url and url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        if url and "postgresql://" in url:
+            return url
         return (
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"

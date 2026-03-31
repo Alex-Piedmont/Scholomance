@@ -6,10 +6,10 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from ..database import db
-from .routes import stats_router, technologies_router, opportunities_router
+from .routes import stats_router, technologies_router, opportunities_router, qa_router
 
 app = FastAPI(
     title="Tech Transfer Dashboard API",
@@ -17,18 +17,28 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS for local development
+# CORS configuration
+cors_origins = [
+    "http://localhost:5173",  # Vite dev server
+    "http://localhost:3000",  # Alternative dev port
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+
+frontend_url = os.environ.get("FRONTEND_URL")
+if frontend_url:
+    cors_origins.append(frontend_url)
+
+cors_origin_regex = os.environ.get("CORS_ORIGIN_REGEX")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Alternative dev port
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
 )
 
 
@@ -36,6 +46,7 @@ app.add_middleware(
 app.include_router(stats_router)
 app.include_router(technologies_router)
 app.include_router(opportunities_router)
+app.include_router(qa_router)
 
 
 @app.get("/api/health")
@@ -51,7 +62,10 @@ def db_health_check():
         count = db.count_technologies()
         return {"status": "ok", "technologies_count": count}
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": str(e)},
+        )
 
 
 # Static file serving for production

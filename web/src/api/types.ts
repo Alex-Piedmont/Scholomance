@@ -99,6 +99,7 @@ export interface TechnologyFilters {
   patent_status?: string
   from_date?: string
   to_date?: string
+  updated_since?: string
 }
 
 // Assessment types
@@ -155,4 +156,30 @@ export interface OpportunityFilters {
   patent_status?: string
   assessment_tier?: 'full' | 'limited'
   sort?: 'composite' | 'trl_gap' | 'false_barrier' | 'alt_application'
+}
+
+// QA types
+export interface UniversityQAStatus {
+  university: string
+  count: number
+  status: 'pending' | 'approved'
+  conflict_count: number
+}
+
+export interface QASample {
+  university: string
+  technology_ids: number[]
+}
+
+export interface QAConflict {
+  id: number
+  technology_id: number
+  field_name: string
+  corrected_value: unknown
+  new_scraped_value: unknown
+}
+
+export interface QARefreshResult {
+  university: string
+  results: Array<{ id: number; status: string; error?: string }>
 }
