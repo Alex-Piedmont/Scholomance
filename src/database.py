@@ -20,6 +20,7 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import (
     sessionmaker,
     declarative_base,
@@ -84,6 +85,8 @@ class Technology(Base):
     composite_opportunity_score = Column(DECIMAL(3, 2))
     last_assessed_at = Column(DateTime(timezone=True))
 
+    # Vector embedding for semantic search
+    embedding = Column(Vector(1536))
 
     # Unique constraint
     __table_args__ = (
@@ -376,6 +379,7 @@ class Database:
         def _bulk_insert(s: Session) -> tuple[int, int]:
             new_count = 0
             updated_count = 0
+            upserted_techs = []  # Collect for post-upsert embedding
 
             for tech_data in technologies:
                 # Auto-detect patent status
@@ -443,6 +447,7 @@ class Database:
                     existing.raw_data = new_raw
 
                     updated_count += 1
+                    upserted_techs.append(existing)
                 else:
                     tech = Technology(
                         university=tech_data.university,
@@ -460,7 +465,12 @@ class Database:
                         last_patent_check_at=datetime.now(timezone.utc),
                     )
                     s.add(tech)
+                    s.flush()  # Ensure tech.id is populated
                     new_count += 1
+                    upserted_techs.append(tech)
+
+            # Generate embeddings for upserted technologies
+            self._embed_technologies(upserted_techs)
 
             return new_count, updated_count
 
@@ -471,6 +481,34 @@ class Database:
                 result = _bulk_insert(s)
                 s.commit()
                 return result
+
+    @staticmethod
+    def _embed_technologies(technologies: list[Technology]) -> None:
+        """Generate embeddings for a list of technologies. Non-blocking on failure."""
+        from .embedder import Embedder, compose_text
+
+        if not Embedder.is_configured():
+            return
+
+        # Compose texts and filter out empties
+        tech_text_pairs = []
+        for tech in technologies:
+            text = compose_text(tech)
+            if text:
+                tech_text_pairs.append((tech, text))
+
+        if not tech_text_pairs:
+            return
+
+        try:
+            embedder = Embedder()
+            texts = [t[1] for t in tech_text_pairs]
+            vectors = embedder.embed_batch(texts)
+            for (tech, _), vector in zip(tech_text_pairs, vectors):
+                tech.embedding = vector
+            logger.info(f"Embedded {len(vectors)} technologies during scrape")
+        except Exception as e:
+            logger.warning(f"Embedding failed during scrape (non-blocking): {e}")
 
     def search_technologies(
         self,
@@ -544,6 +582,104 @@ class Database:
                 _ = obj.id, obj.university, obj.tech_id, obj.title, obj.description
                 _ = obj.url, obj.top_field, obj.subfield, obj.keywords
                 _ = obj.patent_geography, obj.scraped_at
+                session.expunge(obj)
+                make_transient(obj)
+            return results
+
+    def semantic_search(
+        self,
+        query_embedding: list[float],
+        university: Optional[list[str]] = None,
+        top_field: Optional[str] = None,
+        subfield: Optional[str] = None,
+        patent_status: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 15,
+    ) -> list[tuple[Technology, float]]:
+        """Perform filtered cosine similarity search using pgvector.
+
+        Returns list of (Technology, similarity_score) tuples ordered by relevance.
+        """
+        with self.get_session() as session:
+            distance = Technology.embedding.cosine_distance(query_embedding).label("distance")
+            query = session.query(Technology, distance).filter(
+                Technology.embedding.isnot(None)
+            )
+
+            if university:
+                query = query.filter(Technology.university.in_(university))
+            if top_field:
+                query = query.filter(Technology.top_field == top_field)
+            if subfield:
+                query = query.filter(Technology.subfield == subfield)
+            if patent_status:
+                query = query.filter(Technology.patent_status == patent_status)
+            if from_date:
+                query = query.filter(Technology.first_seen >= from_date)
+            if to_date:
+                query = query.filter(Technology.first_seen <= to_date)
+
+            query = query.order_by(distance).limit(limit)
+            results = query.all()
+
+            # Convert distance to similarity and detach objects
+            from sqlalchemy.orm import make_transient
+            output = []
+            for tech, dist in results:
+                similarity = 1.0 - (dist or 0.0)
+                _ = tech.id, tech.uuid, tech.university, tech.tech_id
+                _ = tech.title, tech.description, tech.url
+                _ = tech.top_field, tech.subfield, tech.keywords
+                _ = tech.raw_data, tech.patent_status
+                session.expunge(tech)
+                make_transient(tech)
+                output.append((tech, similarity))
+            return output
+
+    def text_search(
+        self,
+        query: str,
+        university: Optional[list[str]] = None,
+        top_field: Optional[str] = None,
+        subfield: Optional[str] = None,
+        patent_status: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 15,
+    ) -> list[Technology]:
+        """ILIKE text search fallback for when semantic search is unavailable."""
+        with self.get_session() as session:
+            q = session.query(Technology)
+            search_pattern = f"%{query}%"
+            q = q.filter(
+                or_(
+                    Technology.title.ilike(search_pattern),
+                    Technology.description.ilike(search_pattern),
+                )
+            )
+            if university:
+                q = q.filter(Technology.university.in_(university))
+            if top_field:
+                q = q.filter(Technology.top_field == top_field)
+            if subfield:
+                q = q.filter(Technology.subfield == subfield)
+            if patent_status:
+                q = q.filter(Technology.patent_status == patent_status)
+            if from_date:
+                q = q.filter(Technology.first_seen >= from_date)
+            if to_date:
+                q = q.filter(Technology.first_seen <= to_date)
+
+            q = q.order_by(Technology.first_seen.desc()).limit(limit)
+            results = q.all()
+
+            from sqlalchemy.orm import make_transient
+            for obj in results:
+                _ = obj.id, obj.uuid, obj.university, obj.tech_id
+                _ = obj.title, obj.description, obj.url
+                _ = obj.top_field, obj.subfield, obj.keywords
+                _ = obj.raw_data, obj.patent_status
                 session.expunge(obj)
                 make_transient(obj)
             return results

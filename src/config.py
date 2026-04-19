@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # Anthropic API
     anthropic_api_key: Optional[str] = Field(default=None, alias="ANTHROPIC_API_KEY")
 
+    # OpenAI API (for embeddings)
+    openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+
+    # Chat settings
+    chat_model: str = Field(default="claude-haiku-4-5-20251001", alias="CHAT_MODEL")
+
     # Scraper settings
     scrape_delay_seconds: float = Field(default=1.0, alias="SCRAPE_DELAY_SECONDS")
     max_concurrent_requests: int = Field(default=3, alias="MAX_CONCURRENT_REQUESTS")

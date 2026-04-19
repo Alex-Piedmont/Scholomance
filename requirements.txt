@@ -21,6 +21,11 @@ requests>=2.31.0
 # LLM Integration
 anthropic>=0.18.1
 
+# Embeddings and vector search
+pgvector>=0.3.0
+openai>=1.0.0
+tiktoken>=0.5.0
+
 # Configuration
 python-dotenv>=1.0.1
 pydantic>=2.6.1

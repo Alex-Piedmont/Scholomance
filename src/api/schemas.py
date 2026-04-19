@@ -142,3 +142,39 @@ class OpportunityStats(BaseModel):
     high_trl_gap_count: int  # score > 0.7
     high_false_barrier_count: int
     high_alt_application_count: int
+
+
+# Chat schemas
+class ChatFilters(BaseModel):
+    university: Optional[list[str]] = None
+    top_field: Optional[str] = None
+    subfield: Optional[str] = None
+    patent_status: Optional[str] = None
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
+
+
+class ChatHistoryMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    query: str
+    filters: Optional[ChatFilters] = None
+    history: Optional[list[ChatHistoryMessage]] = None
+
+
+class ChatTechnology(BaseModel):
+    uuid: str
+    title: str
+    university: str
+    similarity: float
+    description: str
+
+
+class ChatResponse(BaseModel):
+    response: str
+    technologies: list[ChatTechnology]
+    fallback: bool = False
+    llm_available: bool = True

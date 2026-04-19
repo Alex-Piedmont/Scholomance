@@ -183,3 +183,38 @@ export interface QARefreshResult {
   university: string
   results: Array<{ id: number; status: string; error?: string }>
 }
+
+// Chat types
+export interface ChatTechnology {
+  uuid: string
+  title: string
+  university: string
+  similarity: number
+  description: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  technologies?: ChatTechnology[]
+}
+
+export interface ChatRequest {
+  query: string
+  filters?: {
+    university?: string[]
+    top_field?: string
+    subfield?: string
+    patent_status?: string
+    from_date?: string
+    to_date?: string
+  }
+  history?: Array<{ role: string; content: string }>
+}
+
+export interface ChatResponse {
+  response: string
+  technologies: ChatTechnology[]
+  fallback: boolean
+  llm_available: boolean
+}

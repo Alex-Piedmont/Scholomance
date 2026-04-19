@@ -5,6 +5,7 @@
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";  -- For fuzzy text search
+CREATE EXTENSION IF NOT EXISTS "vector";   -- For pgvector semantic search
 
 -- Main technologies table
 CREATE TABLE IF NOT EXISTS technologies (
@@ -44,6 +45,9 @@ CREATE TABLE IF NOT EXISTS technologies (
     patent_status_confidence DECIMAL(3,2),
     patent_status_source VARCHAR(50),
     last_patent_check_at TIMESTAMP WITH TIME ZONE,
+
+    -- Vector embedding for semantic search (pgvector)
+    embedding vector(1536),
 
     -- Constraints
     CONSTRAINT unique_university_tech UNIQUE(university, tech_id)

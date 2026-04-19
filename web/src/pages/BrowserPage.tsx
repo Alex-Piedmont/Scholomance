@@ -1,12 +1,14 @@
-import { useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Header } from '../components/Layout'
 import { FilterPanel, TechnologyTable, Pagination } from '../components/Browser'
+import { ChatPanel } from '../components/Chat'
 import { ErrorMessage, EmptyState } from '../components/common'
 import { useTechnologies } from '../hooks'
 import type { TechnologyFilters } from '../api/types'
 
 export function BrowserPage() {
+  const [chatOpen, setChatOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
 
   // Parse URL params into filters
@@ -71,12 +73,15 @@ export function BrowserPage() {
     return (
       <div>
         <Header title="Browse Technologies" />
-        <div className="p-6">
-          <FilterPanel filters={filters} onFilterChange={handleFilterChange} />
-          <ErrorMessage
-            message="Failed to load technologies. Please try again."
-            onRetry={refetch}
-          />
+        <div className="flex">
+          <div className="flex-1 min-w-0 p-6">
+            <FilterPanel filters={filters} onFilterChange={handleFilterChange} />
+            <ErrorMessage
+              message="Failed to load technologies. Please try again."
+              onRetry={refetch}
+            />
+          </div>
+          <ChatPanel filters={filters} isOpen={chatOpen} onToggle={() => setChatOpen(o => !o)} />
         </div>
       </div>
     )
@@ -86,38 +91,42 @@ export function BrowserPage() {
     <div>
       <Header title="Browse Technologies" />
 
-      <div className="p-6">
-        <FilterPanel filters={filters} onFilterChange={handleFilterChange} />
+      <div className="flex">
+        <div className="flex-1 min-w-0 p-6">
+          <FilterPanel filters={filters} onFilterChange={handleFilterChange} />
 
-        {!loading && data?.items.length === 0 ? (
-          <EmptyState
-            title="No technologies found"
-            description={hasActiveFilters ? "Try adjusting your filters" : "No technologies in the database yet"}
-            action={hasActiveFilters ? {
-              label: "Clear Filters",
-              onClick: () => handleFilterChange({
-                q: undefined,
-                university: undefined,
-                patent_status: undefined,
-              })
-            } : undefined}
-          />
-        ) : (
-          <>
-            <TechnologyTable data={data?.items || []} loading={loading} />
+          {!loading && data?.items.length === 0 ? (
+            <EmptyState
+              title="No technologies found"
+              description={hasActiveFilters ? "Try adjusting your filters" : "No technologies in the database yet"}
+              action={hasActiveFilters ? {
+                label: "Clear Filters",
+                onClick: () => handleFilterChange({
+                  q: undefined,
+                  university: undefined,
+                  patent_status: undefined,
+                })
+              } : undefined}
+            />
+          ) : (
+            <>
+              <TechnologyTable data={data?.items || []} loading={loading} />
 
-            {data && data.total > 0 && (
-              <Pagination
-                page={data.page}
-                pages={data.pages}
-                total={data.total}
-                limit={data.limit}
-                onPageChange={handlePageChange}
-                onLimitChange={handleLimitChange}
-              />
-            )}
-          </>
-        )}
+              {data && data.total > 0 && (
+                <Pagination
+                  page={data.page}
+                  pages={data.pages}
+                  total={data.total}
+                  limit={data.limit}
+                  onPageChange={handlePageChange}
+                  onLimitChange={handleLimitChange}
+                />
+              )}
+            </>
+          )}
+        </div>
+
+        <ChatPanel filters={filters} isOpen={chatOpen} onToggle={() => setChatOpen(o => !o)} />
       </div>
     </div>
   )
