@@ -56,6 +56,11 @@ university-tech-scraper/
 - **Unique constraint**: (university, tech_id)
 
 
+## Deployment
+
+- **Frontend (Vercel)**: The Vercel project must have **Root Directory** set to `web` in Project Settings → General. Without this, Vercel detects Python at the repo root (via `requirements.txt` / `pyproject.toml`) and fails to install the frontend's npm dependencies, causing `vite: command not found` during build.
+- **Backend (Railway)**: Builds from `Dockerfile.railway` at the repo root; see `railway.toml`.
+
 ## Contributing
 This project was developed by Alex Rudd, Ph.D., with assistance from Anthropic's Claude Code. 
 
