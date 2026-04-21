@@ -1,14 +1,15 @@
-import type { FieldCount } from '../../api/types'
+import type { KeywordCount } from '../../api/types'
 
 export interface FacetState {
-  field: string | null
   patentStatus: string | null
 }
 
 interface FacetsProps {
-  fields: FieldCount[]
+  keywords: KeywordCount[]
+  selectedKeyword: string | null
+  onSelectKeyword: (keyword: string) => void
   facets: FacetState
-  onToggle: (group: keyof FacetState, value: string) => void
+  onTogglePatent: (status: string) => void
 }
 
 const PATENT_OPTIONS: Array<{ key: string; label: string }> = [
@@ -17,31 +18,36 @@ const PATENT_OPTIONS: Array<{ key: string; label: string }> = [
   { key: 'filed', label: 'Filed' },
 ]
 
-export function Facets({ fields, facets, onToggle }: FacetsProps) {
-  const topFields = [...fields].sort((a, b) => b.count - a.count).slice(0, 10)
+export function Facets({
+  keywords,
+  selectedKeyword,
+  onSelectKeyword,
+  facets,
+  onTogglePatent,
+}: FacetsProps) {
+  const topKeywords = keywords.slice(0, 9)
 
   return (
     <div className="facets">
       <span className="facet-group-label">Field</span>
-      {topFields.map((f) => (
+      {topKeywords.map((k) => (
         <button
-          key={f.top_field}
+          key={k.keyword}
           type="button"
-          className={`facet ${facets.field === f.top_field ? 'is-active' : ''}`}
-          onClick={() => onToggle('field', f.top_field)}
+          className={`facet ${selectedKeyword === k.keyword ? 'is-active' : ''}`}
+          onClick={() => onSelectKeyword(k.keyword)}
         >
-          {f.top_field} <span className="count">{f.count.toLocaleString()}</span>
+          {k.keyword} <span className="count">{k.count.toLocaleString()}</span>
         </button>
       ))}
-      <span className="facet-group-label" style={{ marginLeft: 12 }}>
-        Patent
-      </span>
+      <span className="facet-break" aria-hidden="true" />
+      <span className="facet-group-label">Patent</span>
       {PATENT_OPTIONS.map((o) => (
         <button
           key={o.key}
           type="button"
           className={`facet ${facets.patentStatus === o.key ? 'is-active' : ''}`}
-          onClick={() => onToggle('patentStatus', o.key)}
+          onClick={() => onTogglePatent(o.key)}
         >
           {o.label}
         </button>

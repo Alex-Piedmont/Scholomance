@@ -45,6 +45,7 @@ function DrawerContent({ uuid, onClose }: { uuid: string; onClose: () => void })
   const status = (tech?.patent_status || '').toLowerCase()
   const statusClass =
     status === 'granted' ? 'is-granted' : status === 'pending' ? 'is-pending' : ''
+  const showTechId = tech && /[A-Z0-9]/.test(tech.tech_id)
 
   return (
     <>
@@ -52,7 +53,8 @@ function DrawerContent({ uuid, onClose }: { uuid: string; onClose: () => void })
         <div className="drawer__head">
           <div className="drawer__head-top">
             <div className="drawer__univ">
-              {getUniversityName(tech.university)} · {tech.tech_id}
+              {getUniversityName(tech.university)}
+              {showTechId && <> · {tech.tech_id}</>}
             </div>
             <button className="drawer__close" onClick={onClose} aria-label="Close">
               ✕

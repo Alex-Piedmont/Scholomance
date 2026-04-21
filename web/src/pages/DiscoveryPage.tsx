@@ -8,7 +8,7 @@ import {
   type SearchMode,
   type FacetState,
 } from '../components/Discovery'
-import { useTechnologies, useStatsByField } from '../hooks'
+import { useTechnologies, useStatsKeywords } from '../hooks'
 import type { TechnologyFilters } from '../api/types'
 
 export function DiscoveryPage() {
@@ -20,7 +20,6 @@ export function DiscoveryPage() {
   const searchRef = useRef<HTMLInputElement>(null)
 
   const [facets, setFacets] = useState<FacetState>({
-    field: searchParams.get('top_field') || null,
     patentStatus: searchParams.get('patent_status') || null,
   })
 
@@ -45,39 +44,50 @@ export function DiscoveryPage() {
       page: 1,
       limit: 30,
       q: committedQuery || undefined,
-      top_field: facets.field || undefined,
       patent_status: facets.patentStatus || undefined,
     }),
     [committedQuery, facets],
   )
 
   const { data, loading, error, setFilters } = useTechnologies(filters)
-  const { data: fieldStats } = useStatsByField()
+  const { data: keywordStats } = useStatsKeywords()
 
   useEffect(() => {
     setFilters(filters)
     const next = new URLSearchParams()
     if (filters.q) next.set('q', filters.q)
-    if (filters.top_field) next.set('top_field', filters.top_field)
     if (filters.patent_status) next.set('patent_status', filters.patent_status)
     setSearchParams(next, { replace: true })
   }, [filters, setFilters, setSearchParams])
 
-  const toggleFacet = (group: keyof FacetState, value: string) => {
+  const selectKeyword = (keyword: string) => {
+    if (committedQuery === keyword) {
+      setQuery('')
+      setCommittedQuery('')
+    } else {
+      setQuery(keyword)
+      setCommittedQuery(keyword)
+    }
+  }
+
+  const togglePatent = (status: string) => {
     setFacets((prev) => ({
       ...prev,
-      [group]: prev[group] === value ? null : value,
+      patentStatus: prev.patentStatus === status ? null : status,
     }))
   }
 
   const resetFilters = () => {
     setQuery('')
-    setFacets({ field: null, patentStatus: null })
+    setCommittedQuery('')
+    setFacets({ patentStatus: null })
   }
 
   const items = data?.items || []
   const total = data?.total || 0
-  const hasFilters = !!(committedQuery || facets.field || facets.patentStatus)
+  const selectedKeyword =
+    keywordStats?.find((k) => k.keyword === committedQuery)?.keyword || null
+  const hasFilters = !!(committedQuery || facets.patentStatus)
 
   return (
     <div className="page">
@@ -102,9 +112,11 @@ export function DiscoveryPage() {
       />
 
       <Facets
-        fields={fieldStats || []}
+        keywords={keywordStats || []}
+        selectedKeyword={selectedKeyword}
+        onSelectKeyword={selectKeyword}
         facets={facets}
-        onToggle={toggleFacet}
+        onTogglePatent={togglePatent}
       />
 
       <div className="results-meta">

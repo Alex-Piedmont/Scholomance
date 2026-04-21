@@ -18,6 +18,12 @@ function universityShort(code: string): string {
   return full.replace(/ University$/, '')
 }
 
+// Hide tech_id when it looks like a URL slug rather than a real identifier.
+// Real IDs (HRV-6602, NU-D-6612, CU-15204) contain digits or uppercase letters.
+function isSlugLike(techId: string): boolean {
+  return !/[A-Z0-9]/.test(techId) && techId.includes('-')
+}
+
 export function TechCard({
   tech,
   excerpt,
@@ -44,7 +50,9 @@ export function TechCard({
     >
       <div className="card__head">
         <div className="card__univ">{universityShort(tech.university)}</div>
-        <div className="card__tech-id">{tech.tech_id}</div>
+        {!isSlugLike(tech.tech_id) && (
+          <div className="card__tech-id">{tech.tech_id}</div>
+        )}
       </div>
       <h3 className="card__title">{tech.title}</h3>
       {!dense && excerpt && <p className="card__excerpt">{excerpt}</p>}
