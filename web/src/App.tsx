@@ -1,7 +1,15 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { DashboardPage, BrowserPage, DetailPage, OpportunitiesPage, QAPage, QAReviewPage } from './pages'
+import {
+  DiscoveryPage,
+  DashboardPage,
+  BrowserPage,
+  DetailPage,
+  OpportunitiesPage,
+  QAPage,
+  QAReviewPage,
+} from './pages'
 
 function App() {
   return (
@@ -9,7 +17,8 @@ function App() {
       <ErrorBoundary>
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/" element={<DashboardPage />} />
+            <Route path="/" element={<DiscoveryPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/browse" element={<BrowserPage />} />
             <Route path="/opportunities" element={<OpportunitiesPage />} />
             <Route path="/technology/:uuid" element={<DetailPage />} />

@@ -1,0 +1,295 @@
+/* ============================================================
+   PIEDMONT INNOVATION — Design Tokens
+   Colors & Typography
+   ============================================================
+   Source of truth: PowerPoint theme + deck samples
+   (AURI RFP, Avvintura PFAS, Template Starter)
+   ============================================================ */
+
+/* Fonts (Open Sans, Playfair Display, JetBrains Mono) are loaded via <link>
+   in web/index.html so the @import ordering doesn't conflict with Tailwind. */
+
+:root {
+  /* ============================================================
+     COLOR — Primitives (raw palette from PowerPoint theme)
+     ============================================================ */
+
+  /* Navy — the hero color. Used for titles, logo, primary UI. */
+  --navy-900: #000a2b;
+  --navy-800: #001845;
+  --navy-700: #002060;  /* ← PRIMARY brand navy (theme dk2 / accent1) */
+  --navy-600: #0a2d7a;
+  --navy-500: #1a3f8f;
+  --navy-400: #3265aa;  /* theme accent4 — steel blue */
+
+  /* Sky — supporting accent for charts + hyperlinks */
+  --sky-700: #2b8dc9;
+  --sky-600: #4cb4e7;   /* theme accent5 — bright sky (also hlink) */
+  --sky-500: #7cc7ed;
+  --sky-400: #a8dbf4;
+  --sky-300: #d4edfa;
+
+  /* Steel-blue — muted supporting */
+  --steel-700: #3a6695;
+  --steel-600: #4d80af;  /* theme accent6 */
+  --steel-500: #7a9fc4;
+
+  /* Periwinkle / Lavender — secondary data accents
+     (avoids lime-green per brand direction) */
+  --violet-700: #5d5491;
+  --violet-600: #786eaa;  /* theme accent2 */
+  --violet-500: #a297b4;  /* theme accent3 — dusty lilac */
+  --violet-400: #c4bcd2;
+
+  /* Neutrals — grayscale (theme dk1 is 414042 — a warm dark gray) */
+  --ink-900: #1a1a1c;
+  --ink-800: #2a2a2c;
+  --ink-700: #414042;   /* theme dk1 — primary text color */
+  --ink-600: #595759;
+  --ink-500: #7a787a;
+  --ink-400: #a3a2a4;
+  --ink-300: #c9c8ca;
+  --ink-200: #e4e3e5;
+  --ink-100: #f1f0f2;
+  --ink-50:  #f8f8f9;
+  --white:   #ffffff;
+
+  /* Semantic data-viz accents (for charts only, never in UI chrome) */
+  --data-orange:  #e07a3c;  /* from sample enzyme treemap */
+  --data-magenta: #c73b8c;
+  --data-teal:    #2ba39a;
+  --data-amber:   #e0a800;
+  --data-crimson: #e0044e;  /* theme folHlink */
+
+  /* ============================================================
+     COLOR — Semantic roles
+     ============================================================ */
+
+  /* Surfaces */
+  --bg:           var(--white);
+  --bg-subtle:    var(--ink-50);
+  --bg-muted:     var(--ink-100);
+  --bg-inverse:   var(--navy-700);
+  --bg-dark:      #05080f;          /* Avvintura app shell */
+
+  /* Foregrounds */
+  --fg:           var(--ink-700);   /* default text */
+  --fg-strong:    var(--navy-700);  /* titles, emphasis */
+  --fg-muted:     var(--ink-500);
+  --fg-subtle:    var(--ink-400);
+  --fg-inverse:   var(--white);
+  --fg-on-dark:   #e6ebf5;
+
+  /* Borders + dividers */
+  --border:         var(--ink-200);
+  --border-strong:  var(--ink-300);
+  --border-subtle:  var(--ink-100);
+  --rule-navy:      var(--navy-700);  /* header/footer rules */
+
+  /* Interactive */
+  --link:          var(--sky-600);
+  --link-hover:    var(--sky-700);
+  --link-visited:  var(--violet-600);
+
+  /* Brand */
+  --brand:         var(--navy-700);
+  --brand-hover:   var(--navy-600);
+  --brand-contrast:var(--white);
+
+  /* Status — used sparingly in reports (no traffic-light overload) */
+  --success:  #2f8f5c;
+  --warning:  #c77a0a;
+  --danger:   var(--data-crimson);
+  --info:     var(--sky-600);
+
+  /* ============================================================
+     TYPOGRAPHY — Primitives
+     ============================================================ */
+
+  --font-sans:  'Open Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont,
+                'Helvetica Neue', Arial, sans-serif;
+  --font-serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  /* Type scale — deck-optimized (1920×1080 base) but proportional on web */
+  --fs-12: 0.75rem;    /* 12 — footnote */
+  --fs-13: 0.8125rem;  /* 13 — micro */
+  --fs-14: 0.875rem;   /* 14 — caption / chart label */
+  --fs-16: 1rem;       /* 16 — body */
+  --fs-18: 1.125rem;   /* 18 — body large */
+  --fs-20: 1.25rem;    /* 20 — lead */
+  --fs-24: 1.5rem;     /* 24 — h4 */
+  --fs-28: 1.75rem;    /* 28 — h3 */
+  --fs-32: 2rem;       /* 32 — h2 */
+  --fs-40: 2.5rem;     /* 40 — h1 */
+  --fs-52: 3.25rem;    /* 52 — display / slide title */
+  --fs-72: 4.5rem;     /* 72 — cover hero */
+
+  --lh-tight:   1.1;
+  --lh-snug:    1.25;
+  --lh-normal:  1.45;
+  --lh-relaxed: 1.6;
+
+  --ls-tight:   -0.02em;
+  --ls-snug:    -0.01em;
+  --ls-normal:  0;
+  --ls-wide:    0.04em;
+  --ls-widest:  0.14em;  /* for INNOVATION tracking under wordmark */
+
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+  --fw-heavy:    800;
+
+  /* ============================================================
+     SPACING, RADIUS, SHADOWS, MOTION
+     ============================================================ */
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  --radius-none: 0;
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;      /* default for cards, inputs */
+  --radius-lg:   10px;
+  --radius-xl:   16px;
+  --radius-pill: 999px;    /* for the motif capsules */
+
+  /* Shadows — restrained, consulting-professional (not "SaaS-y") */
+  --shadow-xs: 0 1px 1px rgba(0, 32, 96, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 32, 96, 0.06), 0 1px 3px rgba(0, 32, 96, 0.04);
+  --shadow-md: 0 2px 4px rgba(0, 32, 96, 0.06), 0 4px 12px rgba(0, 32, 96, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 32, 96, 0.10);
+  --shadow-inset: inset 0 1px 2px rgba(0, 32, 96, 0.06);
+
+  /* Motion — subtle, professional easings. No bounces. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-entrance: cubic-bezier(0, 0, 0, 1);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+  --dur-fast:   120ms;
+  --dur-med:    200ms;
+  --dur-slow:   320ms;
+
+  /* Layout rails */
+  --container-narrow: 720px;
+  --container-text:   880px;
+  --container:        1200px;
+  --container-wide:   1440px;
+}
+
+/* ============================================================
+   SEMANTIC ELEMENT STYLES
+   Apply these on top of the tokens above.
+   ============================================================ */
+
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-16);
+  line-height: var(--lh-normal);
+  color: var(--fg);
+  background: var(--bg);
+  font-weight: var(--fw-regular);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--fg-strong);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-snug);
+  margin: 0 0 var(--space-4);
+}
+
+h1 { font-size: var(--fs-40); font-weight: var(--fw-heavy); }
+h2 { font-size: var(--fs-32); }
+h3 { font-size: var(--fs-24); font-weight: var(--fw-semibold); }
+h4 { font-size: var(--fs-20); font-weight: var(--fw-semibold); }
+h5 { font-size: var(--fs-16); font-weight: var(--fw-semibold); text-transform: uppercase; letter-spacing: var(--ls-widest); color: var(--fg-muted); }
+h6 { font-size: var(--fs-14); font-weight: var(--fw-semibold); color: var(--fg-muted); }
+
+.display {
+  font-size: var(--fs-52);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tight);
+  color: var(--fg-strong);
+}
+
+.serif-display {
+  font-family: var(--font-serif);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-52);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-snug);
+  color: var(--fg-strong);
+}
+
+.eyebrow {
+  font-size: var(--fs-13);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-widest);
+  color: var(--fg-muted);
+}
+
+.lede {
+  font-size: var(--fs-20);
+  line-height: var(--lh-relaxed);
+  color: var(--fg);
+  font-weight: var(--fw-regular);
+}
+
+p {
+  margin: 0 0 var(--space-4);
+  text-wrap: pretty;
+}
+
+small, .caption {
+  font-size: var(--fs-13);
+  color: var(--fg-muted);
+  line-height: var(--lh-snug);
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+a:hover { color: var(--link-hover); border-bottom-color: currentColor; }
+
+strong, b { font-weight: var(--fw-semibold); color: var(--fg-strong); }
+em { font-style: italic; }
+
+code, kbd, samp, pre {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-6) 0;
+}
+
+/* The brand "tracked caps" treatment — used under wordmark + as section labels */
+.tracked-caps {
+  text-transform: uppercase;
+  letter-spacing: var(--ls-widest);
+  font-weight: var(--fw-semibold);
+}

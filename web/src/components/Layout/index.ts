@@ -1,3 +1,6 @@
 export { Layout } from './Layout'
+export { useRequireLogin } from './gateContext'
 export { Sidebar } from './Sidebar'
 export { Header } from './Header'
+export { LoginModal } from './LoginModal'
+export { Icon } from './Icon'
