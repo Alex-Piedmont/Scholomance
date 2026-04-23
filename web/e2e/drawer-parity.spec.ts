@@ -111,7 +111,7 @@ for (const uni of samples.universities) {
           }
           const loc = selector(drawer)
           try {
-            await expect.soft(loc.first()).toBeVisible({ timeout: 2_000 })
+            await expect(loc.first()).toBeVisible({ timeout: 2_000 })
             sections.push({ sectionId: sid, status: 'pass' })
           } catch {
             sections.push({ sectionId: sid, status: 'missing' })
@@ -128,6 +128,12 @@ for (const uni of samples.universities) {
           surface_alive: 'alive',
           sections,
         })
+        if (anyMissing) {
+          const missed = sections.filter((s) => s.status === 'missing').map((s) => s.sectionId)
+          expect
+            .soft(missed, `Drawer missing sections for ${sample.uuid}: ${missed.join(', ')}`)
+            .toEqual([])
+        }
       })
   }
 }

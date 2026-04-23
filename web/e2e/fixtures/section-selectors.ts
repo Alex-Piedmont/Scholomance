@@ -16,8 +16,22 @@ export type SectionSelector = (scope: Locator) => Locator
 
 // Heading-based selector: case-insensitive exact-ish match. AU-7's shared
 // section components render their own headings so both surfaces resolve.
-const byHeading = (label: string): SectionSelector =>
-  (scope) => scope.getByRole('heading', { name: new RegExp(`^\\s*${escapeRegex(label)}\\s*$`, 'i') })
+const byHeading = (label: string | RegExp): SectionSelector => {
+  const pattern =
+    label instanceof RegExp
+      ? new RegExp(label.source, 'i')
+      : new RegExp(`^\\s*${escapeRegex(label)}\\s*$`, 'i')
+  return (scope) => scope.getByRole('heading', { name: pattern })
+}
+
+// Matches heading text containing ANY of the supplied labels (literal,
+// case-insensitive). Useful when the same UI section uses different
+// heading words depending on content (e.g. Summary vs Description).
+const byAnyHeading = (...labels: string[]): SectionSelector => {
+  const alternation = labels.map(escapeRegex).join('|')
+  const pattern = new RegExp(`^\\s*(?:${alternation})\\s*$`, 'i')
+  return (scope) => scope.getByRole('heading', { name: pattern })
+}
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -29,7 +43,9 @@ export const SECTION_SELECTORS: Record<string, SectionSelector> = {
   summary: byHeading('Summary'),
   abstract: byHeading('Abstract'),
   overview: byHeading('Overview'),
-  description: byHeading('Description'),
+  // ContentSections suppresses Description when any of Summary/Abstract/Overview render
+  // (see ContentSections.tsx). The data is still shown under those headings.
+  description: byAnyHeading('Description', 'Summary', 'Abstract', 'Overview'),
   technical_problem: byHeading('Technical Problem'),
   solution: byHeading('Solution'),
   background: byHeading('Background'),
@@ -49,14 +65,14 @@ export const SECTION_SELECTORS: Record<string, SectionSelector> = {
   researchers: byHeading('Researchers'),
   inventors: byHeading('Inventors'),
   departments: byHeading('Departments'),
-  contacts: byHeading(/Contact|Contacts/.source),
+  contacts: byAnyHeading('Contact', 'Contacts'),
   classification: byHeading('Classification'),
   keywords: byHeading('Keywords'),
   tags: byHeading('Tags'),
   documents: byHeading('Documents'),
   licensing_contact: byHeading('Licensing Contact'),
   related_portfolio: byHeading('Related Technologies'),
-  source_link: byHeading(/Source|View on university website/.source),
+  source_link: byAnyHeading('Source', 'View on university website'),
 }
 
 export type SectionStatus = 'pass' | 'missing'
