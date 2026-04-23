@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SECTION_SELECTORS, type SectionResult } from './fixtures/section-selectors'
-import { assertSurfaceAlive, cardIsOnPage, type AliveStatus } from './fixtures/crash-detection'
+import { assertSurfaceAlive, type AliveStatus } from './fixtures/crash-detection'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -55,24 +55,10 @@ for (const uni of samples.universities) {
     test(`@uni-${uni.code} ${sample.tech_id} (${sample.uuid.slice(0, 8)})`, async ({ page }) => {
         const expected = expectedDrawerSections(uni.code, sample.uuid)
 
-        await page.goto('/')
-        const reachable = await cardIsOnPage(page, sample.uuid)
-        if (!reachable) {
-          collected.push({
-            university: uni.code,
-            uuid: sample.uuid,
-            tech_id: sample.tech_id,
-            title: '',
-            status: 'unreachable',
-            surface_alive: 'unreachable',
-            sections: expected.map((s) => ({ sectionId: s, status: 'missing' })),
-          })
-          test.skip(true, 'Card not in discovery listing (AU-8 ?openTech= required)')
-          return
-        }
-
-        await page.locator(`[data-uuid="${sample.uuid}"]`).first().scrollIntoViewIfNeeded()
-        await page.locator(`[data-uuid="${sample.uuid}"]`).first().click()
+        // Prefer AU-8 ?openTech= deep link (deterministic across all samples).
+        // Fall back to click-on-card for records that happen to be on the
+        // landing page (back-compat; not required after AU-8).
+        await page.goto(`/?openTech=${sample.uuid}`)
 
         const drawer = page.locator('.drawer.is-open')
         await expect(drawer).toBeVisible({ timeout: 10_000 })
