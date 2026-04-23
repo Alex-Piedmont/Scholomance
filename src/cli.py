@@ -24,6 +24,8 @@ from .assessor import Assessor, AssessmentResult, AssessmentError, determine_ass
 from .qa.migration_sampler import run_sampler, SAMPLE_SIZE
 from .qa.migration_audit import run_audit
 from .qa.section_catalog import CATALOG as MQA_CATALOG
+from .qa.matrix import run_matrix
+import subprocess
 
 # Configure console for rich output
 console = Console()
@@ -1575,6 +1577,104 @@ def migration_qa_audit_db(samples_path: Optional[Path], output_dir: Optional[Pat
         f"[bold]Total malformed cells:[/bold] {total_malformed}  "
         f"(these drive AU-6 parser-fix scope)"
     )
+
+
+@migration_qa.command("matrix")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def migration_qa_matrix(output_dir: Optional[Path]) -> None:
+    """Merge samples + DB coverage + Playwright worker outputs into a matrix."""
+    console.print("[bold blue]Building migration-QA matrix...[/bold blue]")
+    matrix = run_matrix(output_dir=output_dir)
+    n_unis = len(matrix["universities"])
+    n_sections = len(matrix["sections"])
+
+    # Quick summary
+    drawer = Counter()
+    detail = Counter()
+    for uni in matrix["universities"].values():
+        for sid in matrix["sections"]:
+            for k, v in uni["drawer_stats"].get(sid, {}).items():
+                drawer[k] += v
+            for k, v in uni["detail_stats"].get(sid, {}).items():
+                detail[k] += v
+
+    summary = Table(title="Gap Matrix Summary", show_lines=False)
+    summary.add_column("Surface", style="cyan")
+    summary.add_column("pass", justify="right", style="green")
+    summary.add_column("fail", justify="right", style="red")
+    summary.add_column("no-data", justify="right", style="dim")
+    summary.add_column("crash", justify="right", style="red")
+    summary.add_column("missing-test", justify="right", style="yellow")
+    summary.add_row(
+        "Drawer",
+        str(drawer["pass"]),
+        str(drawer["fail"]),
+        str(drawer["no-data"]),
+        str(drawer["crash"]),
+        str(drawer["missing-test"]),
+    )
+    summary.add_row(
+        "Detail",
+        str(detail["pass"]),
+        str(detail["fail"]),
+        str(detail["no-data"]),
+        str(detail["crash"]),
+        str(detail["missing-test"]),
+    )
+    console.print(summary)
+    console.print(
+        f"\n[bold]Universities:[/bold] {n_unis}  [bold]Sections:[/bold] {n_sections}  "
+        f"[bold]Matrix:[/bold] docs/qa/migration-matrix-latest.md"
+    )
+
+
+@migration_qa.command("run")
+@click.option("--skip-sample", is_flag=True, help="Reuse existing samples-latest.json")
+@click.option("--skip-audit", is_flag=True, help="Reuse existing db-coverage-latest.json")
+@click.option("--skip-playwright", is_flag=True, help="Reuse prior Playwright worker output")
+@click.option(
+    "--grep",
+    type=str,
+    default=None,
+    help="Playwright --grep filter (e.g. 'uni-jhu' for a single-uni pass)",
+)
+def migration_qa_run(
+    skip_sample: bool, skip_audit: bool, skip_playwright: bool, grep: Optional[str]
+) -> None:
+    """Umbrella: sample -> audit-db -> Playwright (drawer + detail) -> matrix."""
+    if not skip_sample:
+        console.print("[bold blue]Step 1/4: Sampler[/bold blue]")
+        run_sampler()
+    else:
+        console.print("[dim]Step 1/4: Sampler (skipped, reusing samples-latest.json)[/dim]")
+
+    if not skip_audit:
+        console.print("[bold blue]Step 2/4: DB audit[/bold blue]")
+        run_audit()
+    else:
+        console.print("[dim]Step 2/4: DB audit (skipped)[/dim]")
+
+    if not skip_playwright:
+        console.print("[bold blue]Step 3/4: Playwright drawer + detail specs[/bold blue]")
+        web_dir = Path(__file__).resolve().parents[1] / "web"
+        cmd = ["npm", "run", "test:e2e"]
+        if grep:
+            cmd.extend(["--", "--grep", grep])
+        result = subprocess.run(cmd, cwd=web_dir)
+        if result.returncode != 0:
+            console.print(
+                "[yellow]Playwright reported failures. Continuing to matrix so gaps are visible.[/yellow]"
+            )
+    else:
+        console.print("[dim]Step 3/4: Playwright (skipped)[/dim]")
+
+    console.print("[bold blue]Step 4/4: Matrix[/bold blue]")
+    run_matrix()
+    console.print("\n[bold green]Done.[/bold green] See docs/qa/migration-matrix-latest.md")
 
 
 if __name__ == "__main__":
