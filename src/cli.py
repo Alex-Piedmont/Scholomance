@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,8 @@ from .taxonomy import get_top_fields, get_subfields
 from .patent_detector import patent_detector, PatentStatus
 from .assessor import Assessor, AssessmentResult, AssessmentError, determine_assessment_tier
 from .qa.migration_sampler import run_sampler, SAMPLE_SIZE
+from .qa.migration_audit import run_audit
+from .qa.section_catalog import CATALOG as MQA_CATALOG
 
 # Configure console for rich output
 console = Console()
@@ -1521,6 +1524,56 @@ def migration_qa_sample(output_dir: Optional[Path]) -> None:
         f"[bold]Empty:[/bold] {empty_unis}  "
         f"[bold]Total records:[/bold] {total_techs}  "
         f"[bold]Sampled:[/bold] {total_sampled}"
+    )
+
+
+@migration_qa.command("audit-db")
+@click.option(
+    "--samples-path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to samples JSON (default: docs/qa/samples-latest.json)",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Output directory (default: alongside samples)",
+)
+def migration_qa_audit_db(samples_path: Optional[Path], output_dir: Optional[Path]) -> None:
+    """Audit the sampled records against the UI section catalog.
+
+    Produces docs/qa/db-coverage-<date>.{md,json} and db-coverage-latest.json
+    with three-state per-record coverage: has_data | empty | malformed.
+    """
+    console.print("[bold blue]Running DB-side section coverage audit...[/bold blue]")
+    coverages = run_audit(samples_path=samples_path, output_dir=output_dir)
+
+    section_ids = [s.id for s in MQA_CATALOG]
+    section_labels = {s.id: s.label for s in MQA_CATALOG}
+
+    malformed_total = Counter()
+    has_data_total = Counter()
+    for c in coverages:
+        for sid in section_ids:
+            malformed_total[sid] += c.section_counts[sid].get("malformed", 0)
+            has_data_total[sid] += c.section_counts[sid].get("has_data", 0)
+
+    summary = Table(title="Section Coverage Across All Sampled Records", show_lines=False)
+    summary.add_column("Section", style="cyan")
+    summary.add_column("has_data", justify="right", style="green")
+    summary.add_column("malformed", justify="right", style="yellow")
+    for sid in section_ids:
+        m = malformed_total[sid]
+        m_display = f"[bold yellow]{m}[/bold yellow]" if m else "0"
+        summary.add_row(section_labels[sid], str(has_data_total[sid]), m_display)
+    console.print(summary)
+
+    total_malformed = sum(malformed_total.values())
+    console.print(
+        f"\n[bold]Universities audited:[/bold] {len(coverages)}  "
+        f"[bold]Total malformed cells:[/bold] {total_malformed}  "
+        f"(these drive AU-6 parser-fix scope)"
     )
 
 
