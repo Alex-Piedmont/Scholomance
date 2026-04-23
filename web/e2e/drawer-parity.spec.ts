@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SECTION_SELECTORS, type SectionResult } from './fixtures/section-selectors'
-import { assertSurfaceAlive, type AliveStatus } from './fixtures/crash-detection'
+import { type AliveStatus } from './fixtures/crash-detection'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -65,12 +65,15 @@ for (const uni of samples.universities) {
 
         const titleLocator = drawer.locator('.drawer__title')
         let title = ''
+        let aliveStatus: AliveStatus = 'crash'
         try {
-          title = (await titleLocator.innerText({ timeout: 5_000 })) || ''
+          await titleLocator.waitFor({ state: 'visible', timeout: 8_000 })
+          title = (await titleLocator.innerText().catch(() => '')) || ''
+          if (title.trim().length > 0) aliveStatus = 'alive'
         } catch {
-          /* swallow — alive check below handles */
+          /* leaves aliveStatus = 'crash' */
         }
-        const alive = await assertSurfaceAlive(drawer, title || sample.tech_id, 8_000)
+        const alive = { status: aliveStatus }
 
         if (alive.status !== 'alive') {
           collected.push({
