@@ -997,7 +997,7 @@ Per-university section coverage across sampled records. `has_data` means at leas
 | Full Description | 0 | 15 | 0 |
 | Benefits | 9 | 6 | 0 |
 | Market Opportunity | 0 | 15 | 0 |
-| Development Stage | 0 | 1 | **14** |
+| Development Stage | 14 | 1 | 0 |
 | Technology Readiness Level | 0 | 15 | 0 |
 | Key Points | 0 | 15 | 0 |
 | Applications | 6 | 9 | 0 |
@@ -1207,7 +1207,7 @@ Per-university section coverage across sampled records. `has_data` means at leas
 | Full Description | 15 | 0 | 0 |
 | Benefits | 5 | 10 | 0 |
 | Market Opportunity | 0 | 15 | 0 |
-| Development Stage | 11 | 0 | **4** |
+| Development Stage | 15 | 0 | 0 |
 | Technology Readiness Level | 0 | 15 | 0 |
 | Key Points | 0 | 15 | 0 |
 | Applications | 2 | 13 | 0 |
@@ -1229,7 +1229,4 @@ Per-university section coverage across sampled records. `has_data` means at leas
 
 ## Summary — parser-fix candidates
 
-| University | Section | Malformed count |
-|---|---|---:|
-| `upenn` | Development Stage | 14 |
-| `waynestate` | Development Stage | 4 |
+_No malformed sources detected. Every populated source matches an accepted shape._

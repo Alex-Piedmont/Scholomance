@@ -110,7 +110,7 @@ CATALOG: tuple[Section, ...] = (
     Section(
         "development_stage",
         "Development Stage",
-        (_rd("development_stage", "plain_string", "html_string"),),
+        (_rd("development_stage", "plain_string", "html_string", "array_of_strings"),),
     ),
     Section(
         "trl",
