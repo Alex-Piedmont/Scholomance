@@ -4,7 +4,7 @@ plan: 002
 type: fix
 source: Direct request (branch: Migration-QA)
 depth: Deep
-status: Draft
+status: Completed
 ---
 
 # Plan: Migration QA — Drawer Parity and Field Coverage Across All Universities
