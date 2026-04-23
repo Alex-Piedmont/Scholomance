@@ -45,7 +45,7 @@ export function Layout() {
               <div className="brand-lockup__divider" />
               <div className="brand-lockup__product">
                 <div className="brand-lockup__name">Phronesis</div>
-                <div className="brand-lockup__sub">University Tech Transfer</div>
+                <div className="brand-lockup__sub">&ldquo;Practical Knowledge&rdquo;</div>
               </div>
             </NavLink>
 

@@ -49,6 +49,9 @@ class TechnologySummary(BaseModel):
     tech_id: str
     title: str
     url: str
+    description: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    patent_geography: Optional[list[str]] = None
     top_field: Optional[str] = None
     subfield: Optional[str] = None
     patent_status: Optional[str] = None
