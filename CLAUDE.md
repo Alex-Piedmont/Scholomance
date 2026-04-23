@@ -60,6 +60,7 @@
 
 **CRITICAL: Never modify existing DB records (data cleanup, migration, bulk updates) without explicit user approval.** Scraper code changes are fine — they only affect future scrapes. But retroactively altering data already in the database is destructive and must always be confirmed first.
 
+- Documented solutions and learnings: `docs/solutions/` (organized by category with YAML frontmatter for searchability)
 - Error/solution log: `scraper_errors.md`
 - Scraper approval tracking: `SCRAPER_PLAN.md`
 - Frontend section rendering is driven by `raw_data` field names mapped in `web/src/components/Detail/parseRawData.ts`
