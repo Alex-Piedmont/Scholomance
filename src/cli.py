@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import click
@@ -19,6 +20,7 @@ from .classifier import Classifier, ClassificationResult, ClassificationError
 from .taxonomy import get_top_fields, get_subfields
 from .patent_detector import patent_detector, PatentStatus
 from .assessor import Assessor, AssessmentResult, AssessmentError, determine_assessment_tier
+from .qa.migration_sampler import run_sampler, SAMPLE_SIZE
 
 # Configure console for rich output
 console = Console()
@@ -1458,6 +1460,68 @@ def embed(
 
     console.print()
     console.print(summary)
+
+
+@main.group("migration-qa")
+def migration_qa() -> None:
+    """Migration QA tooling (read-only): audit Discovery UI rendering vs. DB."""
+    pass
+
+
+@migration_qa.command("sample")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Output directory. Defaults to <repo>/docs/qa",
+)
+def migration_qa_sample(output_dir: Optional[Path]) -> None:
+    """Generate a stratified JSON sample (15 per university) into docs/qa/.
+
+    Writes two files: a dated snapshot (samples-YYYY-MM-DD.json) and a
+    rolling samples-latest.json that downstream auditors and Playwright
+    specs consume.
+    """
+    console.print(f"[bold blue]Building migration-QA samples ({SAMPLE_SIZE}/uni)...[/bold blue]")
+    samples = run_sampler(output_dir=output_dir)
+
+    table = Table(title="Migration-QA Sample Coverage", show_lines=False)
+    table.add_column("University", style="cyan")
+    table.add_column("Code", style="dim")
+    table.add_column("Total", justify="right")
+    table.add_column("Null RD", justify="right", style="yellow")
+    table.add_column("Sampled", justify="right", style="green")
+    table.add_column("Note", style="dim")
+
+    total_techs = 0
+    total_sampled = 0
+    empty_unis = 0
+    for s in samples:
+        total_techs += s.total_records
+        total_sampled += len(s.sampled)
+        if s.total_records == 0:
+            empty_unis += 1
+            note = "empty"
+        elif s.full_coverage:
+            note = "FULL_COVERAGE"
+        else:
+            note = ""
+        table.add_row(
+            s.name,
+            s.code,
+            str(s.total_records),
+            str(s.null_raw_data),
+            str(len(s.sampled)),
+            note,
+        )
+
+    console.print(table)
+    console.print(
+        f"\n[bold]Universities:[/bold] {len(samples)}  "
+        f"[bold]Empty:[/bold] {empty_unis}  "
+        f"[bold]Total records:[/bold] {total_techs}  "
+        f"[bold]Sampled:[/bold] {total_sampled}"
+    )
 
 
 if __name__ == "__main__":
