@@ -41,8 +41,12 @@ export interface TechnologySummary {
   tech_id: string
   title: string
   url: string
+  description: string | null
+  keywords: string[] | null
+  patent_geography: string[] | null
   top_field: string | null
   subfield: string | null
+  patent_status: string | null
   first_seen: string | null
   published_on: string | null
 }

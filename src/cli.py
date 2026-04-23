@@ -3,7 +3,9 @@
 import asyncio
 import json
 import sys
+from collections import Counter
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import click
@@ -19,6 +21,13 @@ from .classifier import Classifier, ClassificationResult, ClassificationError
 from .taxonomy import get_top_fields, get_subfields
 from .patent_detector import patent_detector, PatentStatus
 from .assessor import Assessor, AssessmentResult, AssessmentError, determine_assessment_tier
+from .qa.migration_sampler import run_sampler, SAMPLE_SIZE
+from .qa.migration_audit import run_audit
+from .qa.section_catalog import CATALOG as MQA_CATALOG
+from .qa.matrix import run_matrix
+from .qa.production_run import run_production, SHAMismatch
+import subprocess
+import shutil
 
 # Configure console for rich output
 console = Console()
@@ -1458,6 +1467,246 @@ def embed(
 
     console.print()
     console.print(summary)
+
+
+@main.group("migration-qa")
+def migration_qa() -> None:
+    """Migration QA tooling (read-only): audit Discovery UI rendering vs. DB."""
+    pass
+
+
+@migration_qa.command("sample")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Output directory. Defaults to <repo>/docs/qa",
+)
+def migration_qa_sample(output_dir: Optional[Path]) -> None:
+    """Generate a stratified JSON sample (15 per university) into docs/qa/.
+
+    Writes two files: a dated snapshot (samples-YYYY-MM-DD.json) and a
+    rolling samples-latest.json that downstream auditors and Playwright
+    specs consume.
+    """
+    console.print(f"[bold blue]Building migration-QA samples ({SAMPLE_SIZE}/uni)...[/bold blue]")
+    samples = run_sampler(output_dir=output_dir)
+
+    table = Table(title="Migration-QA Sample Coverage", show_lines=False)
+    table.add_column("University", style="cyan")
+    table.add_column("Code", style="dim")
+    table.add_column("Total", justify="right")
+    table.add_column("Null RD", justify="right", style="yellow")
+    table.add_column("Sampled", justify="right", style="green")
+    table.add_column("Note", style="dim")
+
+    total_techs = 0
+    total_sampled = 0
+    empty_unis = 0
+    for s in samples:
+        total_techs += s.total_records
+        total_sampled += len(s.sampled)
+        if s.total_records == 0:
+            empty_unis += 1
+            note = "empty"
+        elif s.full_coverage:
+            note = "FULL_COVERAGE"
+        else:
+            note = ""
+        table.add_row(
+            s.name,
+            s.code,
+            str(s.total_records),
+            str(s.null_raw_data),
+            str(len(s.sampled)),
+            note,
+        )
+
+    console.print(table)
+    console.print(
+        f"\n[bold]Universities:[/bold] {len(samples)}  "
+        f"[bold]Empty:[/bold] {empty_unis}  "
+        f"[bold]Total records:[/bold] {total_techs}  "
+        f"[bold]Sampled:[/bold] {total_sampled}"
+    )
+
+
+@migration_qa.command("audit-db")
+@click.option(
+    "--samples-path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to samples JSON (default: docs/qa/samples-latest.json)",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Output directory (default: alongside samples)",
+)
+def migration_qa_audit_db(samples_path: Optional[Path], output_dir: Optional[Path]) -> None:
+    """Audit the sampled records against the UI section catalog.
+
+    Produces docs/qa/db-coverage-<date>.{md,json} and db-coverage-latest.json
+    with three-state per-record coverage: has_data | empty | malformed.
+    """
+    console.print("[bold blue]Running DB-side section coverage audit...[/bold blue]")
+    coverages = run_audit(samples_path=samples_path, output_dir=output_dir)
+
+    section_ids = [s.id for s in MQA_CATALOG]
+    section_labels = {s.id: s.label for s in MQA_CATALOG}
+
+    malformed_total = Counter()
+    has_data_total = Counter()
+    for c in coverages:
+        for sid in section_ids:
+            malformed_total[sid] += c.section_counts[sid].get("malformed", 0)
+            has_data_total[sid] += c.section_counts[sid].get("has_data", 0)
+
+    summary = Table(title="Section Coverage Across All Sampled Records", show_lines=False)
+    summary.add_column("Section", style="cyan")
+    summary.add_column("has_data", justify="right", style="green")
+    summary.add_column("malformed", justify="right", style="yellow")
+    for sid in section_ids:
+        m = malformed_total[sid]
+        m_display = f"[bold yellow]{m}[/bold yellow]" if m else "0"
+        summary.add_row(section_labels[sid], str(has_data_total[sid]), m_display)
+    console.print(summary)
+
+    total_malformed = sum(malformed_total.values())
+    console.print(
+        f"\n[bold]Universities audited:[/bold] {len(coverages)}  "
+        f"[bold]Total malformed cells:[/bold] {total_malformed}  "
+        f"(these drive AU-6 parser-fix scope)"
+    )
+
+
+@migration_qa.command("matrix")
+@click.option(
+    "--output-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+)
+def migration_qa_matrix(output_dir: Optional[Path]) -> None:
+    """Merge samples + DB coverage + Playwright worker outputs into a matrix."""
+    console.print("[bold blue]Building migration-QA matrix...[/bold blue]")
+    matrix = run_matrix(output_dir=output_dir)
+    n_unis = len(matrix["universities"])
+    n_sections = len(matrix["sections"])
+
+    # Quick summary
+    drawer = Counter()
+    detail = Counter()
+    for uni in matrix["universities"].values():
+        for sid in matrix["sections"]:
+            for k, v in uni["drawer_stats"].get(sid, {}).items():
+                drawer[k] += v
+            for k, v in uni["detail_stats"].get(sid, {}).items():
+                detail[k] += v
+
+    summary = Table(title="Gap Matrix Summary", show_lines=False)
+    summary.add_column("Surface", style="cyan")
+    summary.add_column("pass", justify="right", style="green")
+    summary.add_column("fail", justify="right", style="red")
+    summary.add_column("no-data", justify="right", style="dim")
+    summary.add_column("crash", justify="right", style="red")
+    summary.add_column("missing-test", justify="right", style="yellow")
+    summary.add_row(
+        "Drawer",
+        str(drawer["pass"]),
+        str(drawer["fail"]),
+        str(drawer["no-data"]),
+        str(drawer["crash"]),
+        str(drawer["missing-test"]),
+    )
+    summary.add_row(
+        "Detail",
+        str(detail["pass"]),
+        str(detail["fail"]),
+        str(detail["no-data"]),
+        str(detail["crash"]),
+        str(detail["missing-test"]),
+    )
+    console.print(summary)
+    console.print(
+        f"\n[bold]Universities:[/bold] {n_unis}  [bold]Sections:[/bold] {n_sections}  "
+        f"[bold]Matrix:[/bold] docs/qa/migration-matrix-latest.md"
+    )
+
+
+@migration_qa.command("run")
+@click.option("--skip-sample", is_flag=True, help="Reuse existing samples-latest.json")
+@click.option("--skip-audit", is_flag=True, help="Reuse existing db-coverage-latest.json")
+@click.option("--skip-playwright", is_flag=True, help="Reuse prior Playwright worker output")
+@click.option(
+    "--grep",
+    type=str,
+    default=None,
+    help="Playwright --grep filter (e.g. 'uni-jhu' for a single-uni pass)",
+)
+def migration_qa_run(
+    skip_sample: bool, skip_audit: bool, skip_playwright: bool, grep: Optional[str]
+) -> None:
+    """Umbrella: sample -> audit-db -> Playwright (drawer + detail) -> matrix."""
+    if not skip_sample:
+        console.print("[bold blue]Step 1/4: Sampler[/bold blue]")
+        run_sampler()
+    else:
+        console.print("[dim]Step 1/4: Sampler (skipped, reusing samples-latest.json)[/dim]")
+
+    if not skip_audit:
+        console.print("[bold blue]Step 2/4: DB audit[/bold blue]")
+        run_audit()
+    else:
+        console.print("[dim]Step 2/4: DB audit (skipped)[/dim]")
+
+    if not skip_playwright:
+        console.print("[bold blue]Step 3/4: Playwright drawer + detail specs[/bold blue]")
+        web_dir = Path(__file__).resolve().parents[1] / "web"
+        cmd = ["npm", "run", "test:e2e"]
+        if grep:
+            cmd.extend(["--", "--grep", grep])
+        result = subprocess.run(cmd, cwd=web_dir)
+        if result.returncode != 0:
+            console.print(
+                "[yellow]Playwright reported failures. Continuing to matrix so gaps are visible.[/yellow]"
+            )
+    else:
+        console.print("[dim]Step 3/4: Playwright (skipped)[/dim]")
+
+    console.print("[bold blue]Step 4/4: Matrix[/bold blue]")
+    run_matrix()
+    console.print("\n[bold green]Done.[/bold green] See docs/qa/migration-matrix-latest.md")
+
+
+@migration_qa.command("prod")
+@click.option("--ref", default="origin/Migration-QA", help="Git ref whose SHA must match the deployed build")
+@click.option("--base-url", default="https://web-one-lake-22.vercel.app", help="Vercel URL to target")
+@click.option("--skip-sha-gate", is_flag=True, help="Bypass SHA check (use when Vercel lacks a commit-sha surface)")
+def migration_qa_prod(ref: str, base_url: str, skip_sha_gate: bool) -> None:
+    """Production sign-off: run the suite against the live Vercel URL.
+
+    Gated on the deployed commit SHA matching `--ref` (default
+    origin/Migration-QA). Emits docs/qa/migration-matrix-latest.md plus a
+    -prod-suffixed copy as the signed-off artifact.
+    """
+    console.print(f"[bold blue]Production sign-off ref={ref} url={base_url}[/bold blue]")
+    try:
+        run_production(ref=ref, base_url=base_url, skip_sha_gate=skip_sha_gate)
+    except SHAMismatch as e:
+        console.print(f"[red]Aborted:[/red] {e}")
+        raise SystemExit(1)
+
+    from datetime import datetime, timezone
+    iso_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    qa_dir = Path(__file__).resolve().parents[1].parent / "docs" / "qa"
+    src_md = qa_dir / "migration-matrix-latest.md"
+    src_json = qa_dir / "migration-matrix-latest.json"
+    dst_md = qa_dir / f"migration-matrix-{iso_date}-prod.md"
+    dst_json = qa_dir / f"migration-matrix-{iso_date}-prod.json"
+    shutil.copy2(src_md, dst_md)
+    shutil.copy2(src_json, dst_json)
+    console.print(f"[bold green]Signed-off artifact:[/bold green] {dst_md.relative_to(Path.cwd())}")
 
 
 if __name__ == "__main__":

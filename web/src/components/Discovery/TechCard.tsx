@@ -1,12 +1,9 @@
 import type { TechnologySummary } from '../../api/types'
 import { getUniversityName } from '../../utils/universityNames'
+import { stripHtml } from '../Detail/parseRawData'
 
 interface TechCardProps {
   tech: TechnologySummary
-  excerpt?: string | null
-  keywords?: string[] | null
-  patentStatus?: string | null
-  patentGeography?: string[] | null
   dense?: boolean
   onOpen: (uuid: string) => void
 }
@@ -24,27 +21,22 @@ function isSlugLike(techId: string): boolean {
   return !/[A-Z0-9]/.test(techId) && techId.includes('-')
 }
 
-export function TechCard({
-  tech,
-  excerpt,
-  keywords,
-  patentStatus,
-  patentGeography,
-  dense,
-  onOpen,
-}: TechCardProps) {
-  const kwList = (keywords || []).slice(0, dense ? 3 : 4)
-  const status = (patentStatus || '').toLowerCase()
+export function TechCard({ tech, dense, onOpen }: TechCardProps) {
+  const excerpt = tech.description ? stripHtml(tech.description) : null
+  const kwList = (tech.keywords || []).slice(0, dense ? 3 : 4)
+  const status = (tech.patent_status || '').toLowerCase()
   const statusClass =
     status === 'granted' ? 'is-granted' : status === 'pending' ? 'is-pending' : ''
   const statusLabel = status
     ? status.charAt(0).toUpperCase() + status.slice(1)
     : 'Unknown'
+  const geos = tech.patent_geography || []
 
   return (
     <button
       type="button"
       className="card"
+      data-uuid={tech.uuid}
       onClick={() => onOpen(tech.uuid)}
       aria-label={`Open ${tech.title}`}
     >
@@ -76,9 +68,7 @@ export function TechCard({
         <span className={`patent-badge ${statusClass}`}>
           <span className="dot" />
           {statusLabel}
-          {patentGeography && patentGeography.length > 0 && (
-            <span className="geos">{patentGeography.join('·')}</span>
-          )}
+          {geos.length > 0 && <span className="geos">{geos.join('·')}</span>}
         </span>
         <span className="tier-flag is-full">{tech.first_seen?.slice(0, 7) || 'new'}</span>
       </div>

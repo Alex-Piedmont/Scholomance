@@ -16,7 +16,12 @@ export function DiscoveryPage() {
   const [mode, setMode] = useState<SearchMode>('semantic')
   const [query, setQuery] = useState(searchParams.get('q') || '')
   const [committedQuery, setCommittedQuery] = useState(query)
-  const [selectedUuid, setSelectedUuid] = useState<string | null>(null)
+  // Deep-link surface for Playwright and bookmarks: ?openTech=<uuid>
+  // hydrates the drawer on mount. Additive — does not round-trip to URL
+  // when the drawer is opened by click (preserves existing UX).
+  const [selectedUuid, setSelectedUuid] = useState<string | null>(
+    () => searchParams.get('openTech') || null,
+  )
   const searchRef = useRef<HTMLInputElement>(null)
 
   const [facets, setFacets] = useState<FacetState>({
@@ -92,8 +97,8 @@ export function DiscoveryPage() {
   return (
     <div className="page">
       <div className="page__intro">
-        <div className="eyebrow">University Tech Transfer</div>
-        <h1 className="page__title">Discovery</h1>
+        <div className="eyebrow">Discovery · Technology Opportunities</div>
+        <h1 className="page__title">Find the best deep-tech opportunities for commercialization</h1>
         <p className="page__dek">
           Phronesis indexes university technology listings across dozens of
           institutions. Search semantically against titles and descriptions, filter by

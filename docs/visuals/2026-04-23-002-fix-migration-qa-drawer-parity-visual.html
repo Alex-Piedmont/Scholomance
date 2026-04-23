@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migration QA — Drawer Parity & Field Coverage</title>
+<style>
+:root {
+  --ve-bg: #ffffff;
+  --ve-bg-surface: #f8fafc;
+  --ve-bg-elevated: #ffffff;
+  --ve-bg-recessed: #f1f5f9;
+  --ve-text: #1e293b;
+  --ve-text-dim: #64748b;
+  --ve-text-bright: #0f172a;
+  --ve-border: #e2e8f0;
+  --ve-border-strong: #cbd5e1;
+  --ve-accent: #2563eb;
+  --ve-accent-dim: #60a5fa33;
+  --ve-success: #16a34a;
+  --ve-success-dim: #16a34a22;
+  --ve-warning: #d97706;
+  --ve-warning-dim: #d9770622;
+  --ve-danger: #dc2626;
+  --ve-danger-dim: #dc262622;
+  --ve-info: #2563eb;
+  --ve-info-dim: #2563eb22;
+  --ve-font-body: system-ui, -apple-system, sans-serif;
+  --ve-font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  --ve-radius: 6px;
+  --ve-shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --ve-shadow-md: 0 4px 6px rgba(0,0,0,0.07);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ve-bg: #0f172a;
+    --ve-bg-surface: #1e293b;
+    --ve-bg-elevated: #334155;
+    --ve-bg-recessed: #0f172a;
+    --ve-text: #e2e8f0;
+    --ve-text-dim: #94a3b8;
+    --ve-text-bright: #f8fafc;
+    --ve-border: #334155;
+    --ve-border-strong: #475569;
+    --ve-accent: #60a5fa;
+    --ve-accent-dim: #60a5fa33;
+    --ve-success: #4ade80;
+    --ve-success-dim: #4ade8022;
+    --ve-warning: #fbbf24;
+    --ve-warning-dim: #fbbf2422;
+    --ve-danger: #f87171;
+    --ve-danger-dim: #f8717122;
+    --ve-info: #60a5fa;
+    --ve-info-dim: #60a5fa22;
+    --ve-shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+    --ve-shadow-md: 0 4px 6px rgba(0,0,0,0.3);
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--ve-font-body);
+  background: var(--ve-bg);
+  color: var(--ve-text);
+  line-height: 1.6;
+}
+.ve-main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+h1, h2, h3 { color: var(--ve-text-bright); margin-top: 2rem; }
+h1 { font-size: 1.75rem; border-bottom: 2px solid var(--ve-border); padding-bottom: 0.5rem; }
+h2 { font-size: 1.35rem; }
+h3 { font-size: 1.05rem; }
+code { font-family: var(--ve-font-mono); font-size: 0.85em; background: var(--ve-bg-recessed); padding: 0.15em 0.4em; border-radius: 3px; }
+
+.ve-nav {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; gap: 0.25rem; padding: 0.5rem 1rem;
+  background: var(--ve-bg-surface); border-bottom: 1px solid var(--ve-border);
+  overflow-x: auto; white-space: nowrap;
+}
+.ve-nav-link {
+  padding: 0.4rem 0.75rem; border-radius: var(--ve-radius);
+  text-decoration: none; color: var(--ve-text-dim); font-size: 0.85rem;
+  transition: background 0.15s, color 0.15s;
+}
+.ve-nav-link:hover { background: var(--ve-bg-recessed); color: var(--ve-text); }
+.ve-nav-active { background: var(--ve-accent-dim); color: var(--ve-accent); font-weight: 600; }
+
+.ve-header { margin-bottom: 2rem; }
+.ve-meta { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; font-size: 0.85rem; color: var(--ve-text-dim); }
+.ve-meta-item { display: inline-flex; align-items: center; gap: 0.25rem; }
+.ve-depth-badge { padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600; font-size: 0.75rem; background: var(--ve-accent-dim); color: var(--ve-accent); }
+
+.ve-diagram-shell {
+  position: relative;
+  background: var(--ve-bg-surface);
+  border: 1px solid var(--ve-border);
+  border-radius: var(--ve-radius);
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+.ve-diagram-viewport { display: flex; justify-content: flex-start; align-items: flex-start; min-width: min-content; }
+.ve-diagram-viewport pre.mermaid { margin: 0; background: transparent; }
+.ve-diagram-viewport pre.mermaid svg { display: block; }
+.ve-diagram-controls { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 10; display: flex; gap: 0.25rem; }
+.ve-zoom-btn {
+  padding: 0.25rem 0.5rem; border: 1px solid var(--ve-border);
+  border-radius: var(--ve-radius); background: var(--ve-bg-elevated);
+  color: var(--ve-text-dim); cursor: pointer; font-size: 0.8rem;
+  transition: background 0.15s;
+}
+.ve-zoom-btn:hover { background: var(--ve-bg-recessed); color: var(--ve-text); }
+
+.ve-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.ve-detail-card {
+  background: var(--ve-bg-surface);
+  border: 1px solid var(--ve-border);
+  border-radius: var(--ve-radius);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--ve-shadow-sm);
+  min-width: 0;
+}
+.ve-detail-card-header { font-weight: 600; font-size: 0.9rem; color: var(--ve-text-bright); padding-bottom: 0.5rem; border-bottom: 1px solid var(--ve-border); margin-bottom: 0.5rem; }
+.ve-detail-card-body { font-size: 0.85rem; }
+.ve-detail-field { margin-bottom: 0.35rem; overflow-wrap: break-word; }
+.ve-field-label { color: var(--ve-text-dim); font-weight: 500; }
+.ve-detail-card[data-type="iu"] { border-left: 3px solid var(--ve-accent); }
+.ve-detail-card[data-type="store"] { border-left: 3px solid var(--ve-info); }
+.ve-detail-card[data-type="trigger"] { border-left: 3px solid var(--ve-success); }
+.ve-detail-card[data-type="state"] { border-left: 3px solid var(--ve-accent); }
+
+.ve-gap-flag {
+  display: flex; gap: 0.75rem; align-items: flex-start;
+  padding: 0.75rem 1rem;
+  border-radius: var(--ve-radius);
+  margin: 0.5rem 0;
+  min-width: 0;
+}
+.ve-gap-flag[data-severity="warning"] { background: var(--ve-warning-dim); border: 1px solid var(--ve-warning); }
+.ve-gap-flag[data-severity="info"] { background: var(--ve-info-dim); border: 1px solid var(--ve-info); }
+.ve-gap-flag-icon { font-weight: 700; font-size: 1.1rem; line-height: 1; flex-shrink: 0; width: 1.5rem; text-align: center; }
+.ve-gap-flag[data-severity="warning"] .ve-gap-flag-icon { color: var(--ve-warning); }
+.ve-gap-flag[data-severity="info"] .ve-gap-flag-icon { color: var(--ve-info); }
+.ve-gap-flag-title { font-weight: 600; font-size: 0.9rem; color: var(--ve-text-bright); }
+.ve-gap-flag-detail { font-size: 0.85rem; color: var(--ve-text-dim); margin-top: 0.25rem; }
+
+.ve-detail-grid > * { min-width: 0; }
+pre.mermaid { overflow: visible; }
+
+.mermaid .nodeLabel { color: var(--ve-text) !important; }
+.mermaid .edgeLabel { color: var(--ve-text) !important; }
+
+@media (max-width: 768px) {
+  .ve-detail-grid { grid-template-columns: 1fr; }
+  .ve-nav { padding: 0.4rem 0.5rem; }
+  .ve-main { padding: 1rem; }
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+</head>
+<body>
+<nav class="ve-nav">
+  <a href="#overview" class="ve-nav-link ve-nav-active">Overview</a>
+  <a href="#logic-flows" class="ve-nav-link">Logic Flows</a>
+  <a href="#data-flows" class="ve-nav-link">Data Flows</a>
+  <a href="#state-machines" class="ve-nav-link">State Machines</a>
+  <a href="#gaps" class="ve-nav-link">Gaps</a>
+</nav>
+<main class="ve-main">
+
+<header class="ve-header" id="header">
+  <h1>Migration QA — Drawer Parity &amp; Field Coverage Across All Universities</h1>
+  <div class="ve-meta">
+    <span class="ve-meta-item">2026-04-23</span>
+    <span class="ve-meta-item ve-depth-badge">Deep</span>
+    <span class="ve-meta-item">Type: <code>fix</code></span>
+    <span class="ve-meta-item">Source: <code>Direct request (branch: Migration-QA)</code></span>
+    <span class="ve-meta-item">Plan: <code>docs/plans/2026-04-23-002-fix-migration-qa-drawer-parity-plan.md</code></span>
+  </div>
+</header>
+
+<section id="overview" class="ve-section">
+  <h2>Architecture Overview — Dependency Graph</h2>
+  <p style="color: var(--ve-text-dim); font-size: 0.9rem;">10 atomic units across three tracks: Python audit tooling (AU-1, AU-2, AU-9, AU-10), Playwright test infrastructure (AU-3, AU-4, AU-5), and React rendering pipeline (AU-6, AU-7, AU-8). Audit and rendering tracks converge at the gap matrix (AU-9).</p>
+  <div class="ve-diagram-shell">
+    <div class="ve-diagram-controls">
+      <button class="ve-zoom-btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button class="ve-zoom-btn" data-action="zoom-out" title="Zoom out">-</button>
+      <button class="ve-zoom-btn" data-action="reset" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ve-diagram-viewport">
+      <pre class="mermaid">
+flowchart TD
+  AU1["AU-1: Sampler CLI"]
+  AU2["AU-2: DB audit"]
+  AU3["AU-3: Playwright bootstrap"]
+  AU4["AU-4: Drawer spec"]
+  AU5["AU-5: Detail spec"]
+  AU6["AU-6: parseRawData normalize"]
+  AU7["AU-7: Extract sections"]
+  AU8["AU-8: Drawer consumes sections"]
+  AU9["AU-9: Gap matrix"]
+  AU10["AU-10: Prod sign-off"]
+
+  AU1 --> AU2
+  AU1 --> AU4
+  AU1 --> AU5
+  AU2 --> AU4
+  AU2 --> AU5
+  AU2 --> AU6
+  AU3 --> AU4
+  AU3 --> AU5
+  AU6 --> AU7
+  AU7 --> AU8
+  AU2 --> AU9
+  AU4 --> AU9
+  AU5 --> AU9
+  AU8 --> AU9
+  AU9 --> AU10
+
+  classDef python fill:#2563eb22,stroke:#2563eb
+  classDef test fill:#16a34a22,stroke:#16a34a
+  classDef react fill:#d9770622,stroke:#d97706
+  class AU1,AU2,AU9,AU10 python
+  class AU3,AU4,AU5 test
+  class AU6,AU7,AU8 react
+      </pre>
+    </div>
+  </div>
+
+  <div class="ve-detail-grid">
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-1: Sampler CLI</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Deterministic JSON sample (15 per university, stratified) over every university present in the DB.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>src/qa/migration_sampler.py</code>, <code>src/cli.py</code>, <code>docs/qa/samples-latest.json</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> None</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R1, R2</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-2: DB audit</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Per-record, per-UI-section "data available?" matrix using a catalog that mirrors DiscoveryDrawer + ContentSections + SidePanel.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>src/qa/section_catalog.py</code>, <code>src/qa/migration_audit.py</code>, <code>src/cli.py</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-1</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R3, R11</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-3: Playwright bootstrap</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Install @playwright/test ^1.59 in <code>web/</code>, env-driven baseURL, passing smoke test.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>web/package.json</code>, <code>web/playwright.config.ts</code>, <code>web/e2e/smoke.spec.ts</code>, <code>web/.env.local.example</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> None</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R4</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-4: Drawer spec</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> For every sample, open drawer via <code>data-uuid</code> click, assert every DB-populated section renders.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>web/e2e/drawer-parity.spec.ts</code>, <code>web/e2e/fixtures/*</code>, <code>web/src/components/Discovery/TechCard.tsx</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-1, AU-2, AU-3</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R5, R11</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-5: Detail spec</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Regression spec against <code>/technology/:uuid</code>; establishes the parity target.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>web/e2e/detail-page.spec.ts</code>, <code>web/e2e/fixtures/section-selectors.ts</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-1, AU-2, AU-3</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R6, R11</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-6: parseRawData normalize</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Dual-output (<code>*Text</code>/<code>*List</code>) for every string-or-array field; no silent drops.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>web/src/components/Detail/parseRawData.ts</code>, <code>web/src/components/Detail/parseRawData.test-shapes.md</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-2 (hard); AU-4/AU-5 inform</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R7, R11</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-7: Extract sections</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Move DetailPage blocks into <code>Detail/sections/</code> with uniform prop contract; no visual regression.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>web/src/components/Detail/sections/*</code>, <code>web/src/pages/DetailPage.tsx</code>, <code>ContentSections.tsx</code>, <code>SidePanel.tsx</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-6</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R8</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-8: Drawer consumes</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Replace <code>DrawerBody</code> with <code>DrawerSections</code> importing from <code>Detail/sections/</code>; add <code>?openTech=</code> hydration.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>web/src/components/Discovery/DiscoveryDrawer.tsx</code>, <code>web/src/pages/DiscoveryPage.tsx</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-7</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R5, R8</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-9: Gap matrix</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Merge DB audit + Playwright drawer + Playwright detail JSON into per-university matrix with drawer-vs-detail columns.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>src/qa/matrix.py</code>, <code>src/cli.py</code>, <code>docs/qa/README.md</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-2, AU-4, AU-5</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R9, R11</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="iu">
+      <div class="ve-detail-card-header">AU-10: Prod sign-off</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Goal:</span> Suite against live Vercel URL gated on <code>git rev-parse origin/Migration-QA</code> matching deployed SHA; commit final matrix.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Files:</span> <code>src/qa/production_run.py</code>, <code>src/cli.py</code>, <code>docs/qa/migration-matrix-*-prod.md</code></div>
+        <div class="ve-detail-field"><span class="ve-field-label">Deps:</span> AU-9</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Requirements:</span> R10, R11</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ve-gap-flag" data-severity="warning">
+    <div class="ve-gap-flag-icon">!</div>
+    <div class="ve-gap-flag-content">
+      <div class="ve-gap-flag-title">High-impact file: <code>src/cli.py</code> is touched by 4 AUs (AU-1, AU-2, AU-9, AU-10)</div>
+      <div class="ve-gap-flag-detail">All four AUs register subcommands. Changes cascade: a registry refactor or decorator change affects every audit entry point. Recommend committing each AU's subcommand addition as an atomic edit to avoid merge churn.</div>
+    </div>
+  </div>
+  <div class="ve-gap-flag" data-severity="warning">
+    <div class="ve-gap-flag-icon">!</div>
+    <div class="ve-gap-flag-content">
+      <div class="ve-gap-flag-title">High-impact artifact: <code>docs/qa/samples-latest.json</code> is consumed by 4 AUs (AU-2, AU-4, AU-5, AU-9)</div>
+      <div class="ve-gap-flag-detail">A schema change in AU-1 invalidates every downstream consumer silently. Pin the JSON shape contract in the sampler module's docstring and reference it from each consumer.</div>
+    </div>
+  </div>
+</section>
+
+<section id="logic-flows" class="ve-section">
+  <h2>Logic Flows</h2>
+
+  <h3>Flow 1: <code>migration-qa run</code> umbrella orchestration (AU-9)</h3>
+  <div class="ve-diagram-shell">
+    <div class="ve-diagram-controls">
+      <button class="ve-zoom-btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button class="ve-zoom-btn" data-action="zoom-out" title="Zoom out">-</button>
+      <button class="ve-zoom-btn" data-action="reset" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ve-diagram-viewport">
+      <pre class="mermaid">
+flowchart TD
+  START(["Start: migration-qa run"])
+  SAMPLE["AU-1: Generate samples.json"]
+  AUDIT["AU-2: Audit DB to db-coverage.json"]
+  LAUNCH["Spawn: npm run test:e2e"]
+  DRAWER["AU-4: drawer-parity.spec runs"]
+  DETAIL["AU-5: detail-page.spec runs"]
+  CHECK{"All JSON outputs present?"}
+  MERGE["AU-9: Merge into matrix"]
+  ABORT["Exit non-zero with missing-file error"]
+  REPORT(["Output: migration-matrix.md"])
+
+  START --> SAMPLE
+  SAMPLE --> AUDIT
+  AUDIT --> LAUNCH
+  LAUNCH --> DRAWER
+  LAUNCH --> DETAIL
+  DRAWER --> CHECK
+  DETAIL --> CHECK
+  CHECK -->|Yes| MERGE
+  CHECK -->|No| ABORT
+  MERGE --> REPORT
+  ABORT --> REPORT
+
+  classDef errorPath fill:#dc262622,stroke:#dc2626
+  class ABORT errorPath
+      </pre>
+    </div>
+  </div>
+
+  <h3>Flow 2: Production sign-off (AU-10)</h3>
+  <div class="ve-diagram-shell">
+    <div class="ve-diagram-controls">
+      <button class="ve-zoom-btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button class="ve-zoom-btn" data-action="zoom-out" title="Zoom out">-</button>
+      <button class="ve-zoom-btn" data-action="reset" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ve-diagram-viewport">
+      <pre class="mermaid">
+flowchart TD
+  START(["Start: migration-qa run --target prod"])
+  RESOLVE["git rev-parse origin/Migration-QA"]
+  FETCH["Fetch deployed SHA from Vercel"]
+  CHECK{"Deployed SHA matches HEAD?"}
+  ABORT["Abort: mismatch message with Vercel link"]
+  RUN["PLAYWRIGHT_BASE_URL set; run drawer + detail specs"]
+  MATRIX["Merge prod run into matrix"]
+  COMMIT["Write docs/qa/migration-matrix-date-prod.md"]
+  END1(["Signed-off artifact committed"])
+
+  START --> RESOLVE
+  RESOLVE --> FETCH
+  FETCH --> CHECK
+  CHECK -->|Yes| RUN
+  CHECK -->|No| ABORT
+  RUN --> MATRIX
+  MATRIX --> COMMIT
+  COMMIT --> END1
+  ABORT --> END1
+
+  classDef errorPath fill:#dc262622,stroke:#dc2626
+  class ABORT errorPath
+      </pre>
+    </div>
+  </div>
+
+  <h3>Flow 3: Per-record drawer assertion (AU-4 inner loop)</h3>
+  <div class="ve-diagram-shell">
+    <div class="ve-diagram-controls">
+      <button class="ve-zoom-btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button class="ve-zoom-btn" data-action="zoom-out" title="Zoom out">-</button>
+      <button class="ve-zoom-btn" data-action="reset" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ve-diagram-viewport">
+      <pre class="mermaid">
+flowchart TD
+  NAV["Navigate to /"]
+  LOCATE{"Card with data-uuid present?"}
+  UNREACH["Record: UNREACHABLE"]
+  CLICK["Click card; wait for drawer.is-open"]
+  ALIVE{"tech.title visible in drawer?"}
+  CRASH["Record: CRASH"]
+  LOOP["For each expected section (from db-coverage): expect.soft visible"]
+  RESULT(["Emit per-record result JSON"])
+
+  NAV --> LOCATE
+  LOCATE -->|Yes| CLICK
+  LOCATE -->|No| UNREACH
+  CLICK --> ALIVE
+  ALIVE -->|Yes| LOOP
+  ALIVE -->|No| CRASH
+  LOOP --> RESULT
+  CRASH --> RESULT
+  UNREACH --> RESULT
+
+  classDef errorPath fill:#dc262622,stroke:#dc2626
+  class CRASH,UNREACH errorPath
+      </pre>
+    </div>
+  </div>
+
+  <div class="ve-gap-flag" data-severity="info">
+    <div class="ve-gap-flag-icon">i</div>
+    <div class="ve-gap-flag-content">
+      <div class="ve-gap-flag-title">Flow 1: matrix generation aborts on missing JSON but does not retry failed specs</div>
+      <div class="ve-gap-flag-detail">If AU-4 or AU-5 Playwright runs fail mid-suite (e.g. Railway cold-start timeout), the umbrella command aborts. Playwright's own <code>retries: 2</code> handles transient flake; plan relies on that. Not a gap per se, but worth knowing during /build.</div>
+    </div>
+  </div>
+</section>
+
+<section id="data-flows" class="ve-section">
+  <h2>Data Flow Map</h2>
+  <p style="color: var(--ve-text-dim); font-size: 0.9rem;">The audit pipeline is a linear ETL of <code>technologies</code> DB rows through three JSON artifacts into a final markdown matrix. Zero destructive writes to the DB (R11 invariant).</p>
+  <div class="ve-diagram-shell">
+    <div class="ve-diagram-controls">
+      <button class="ve-zoom-btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button class="ve-zoom-btn" data-action="zoom-out" title="Zoom out">-</button>
+      <button class="ve-zoom-btn" data-action="reset" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ve-diagram-viewport">
+      <pre class="mermaid">
+flowchart TD
+  DB[("technologies DB table")]
+  CATALOG[("section_catalog.py")]
+  SAMPLES[("samples-latest.json")]
+  COVERAGE[("db-coverage-latest.json")]
+  DRAWERJ[("playwright-drawer.json")]
+  DETAILJ[("playwright-detail.json")]
+  MATRIX[("migration-matrix-DATE.md")]
+  SAMPLER["Sampler (AU-1)"]
+  AUDITOR["DB auditor (AU-2)"]
+  PW["Playwright specs (AU-4 and AU-5)"]
+  GEN["Matrix generator (AU-9)"]
+
+  SAMPLER -->|reads| DB
+  SAMPLER -->|writes| SAMPLES
+  AUDITOR -->|reads| SAMPLES
+  AUDITOR -->|reads| CATALOG
+  AUDITOR -->|writes| COVERAGE
+  PW -->|reads| SAMPLES
+  PW -->|reads| COVERAGE
+  PW -->|writes| DRAWERJ
+  PW -->|writes| DETAILJ
+  GEN -->|reads| COVERAGE
+  GEN -->|reads| DRAWERJ
+  GEN -->|reads| DETAILJ
+  GEN -->|writes| MATRIX
+
+  classDef store fill:#2563eb22,stroke:#2563eb
+  classDef catalog fill:#d9770622,stroke:#d97706
+  class DB,SAMPLES,COVERAGE,DRAWERJ,DETAILJ,MATRIX store
+  class CATALOG catalog
+      </pre>
+    </div>
+  </div>
+
+  <div class="ve-detail-grid">
+    <div class="ve-detail-card" data-type="store">
+      <div class="ve-detail-card-header">technologies (Postgres)</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> Sampler (AU-1)</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> none (R11 invariant)</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Notes:</span> JSONB <code>raw_data</code>, top-level <code>keywords[]</code>, <code>patent_geography[]</code>, <code>university</code> string code.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="catalog">
+      <div class="ve-detail-card-header">section_catalog.py</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> AU-2 auditor; also conceptually by AU-4/AU-5 selectors and AU-9 matrix columns</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> hand-authored in AU-2</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Shape tokens:</span> array_of_strings, array_of_objects, newline_string, comma_string, html_string, plain_string, object</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="store">
+      <div class="ve-detail-card-header">samples-latest.json</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> Sampler (AU-1) — also dated copy</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> AU-2, AU-4, AU-5, AU-9</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Shape:</span> <code>{universities:[{code,total_records,sampled[15]:{uuid,tech_id,first_seen,stratum,raw_data_keys[]}}]}</code></div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="store">
+      <div class="ve-detail-card-header">db-coverage-latest.json</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> AU-2 auditor</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> AU-4, AU-5, AU-9</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Shape:</span> <code>{uni: {uuid: {section_id: has_data | empty | malformed}}}</code></div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="store">
+      <div class="ve-detail-card-header">playwright-drawer.json</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> AU-4 custom reporter</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> AU-9</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Shape:</span> <code>{uuid: {status: pass|fail|crash|unreachable, missing_sections: []}}</code></div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="store">
+      <div class="ve-detail-card-header">playwright-detail.json</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> AU-5 custom reporter</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> AU-9</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Shape:</span> same as drawer; no unreachable state (direct URL nav)</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="store">
+      <div class="ve-detail-card-header">migration-matrix-DATE.md</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Written by:</span> AU-9 matrix generator</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Read by:</span> humans; diff against prior dated artifact is the regression signal</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Prod variant:</span> AU-10 emits <code>-prod</code> suffix</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ve-gap-flag" data-severity="info">
+    <div class="ve-gap-flag-icon">i</div>
+    <div class="ve-gap-flag-content">
+      <div class="ve-gap-flag-title">section_catalog.py has no runtime consumer in the frontend</div>
+      <div class="ve-gap-flag-detail">The catalog lives in Python (AU-2) but the TS <code>section-selectors.ts</code> fixture (AU-4) mirrors it by convention, not by generation. Drift risk: a new section added to <code>parseRawData</code> or a new drawer section won't appear in the catalog until manually added. Consider generating the fixture from catalog JSON during /build if maintenance burden grows.</div>
+    </div>
+  </div>
+</section>
+
+<section id="state-machines" class="ve-section">
+  <h2>State Machines — Per-record audit lifecycle</h2>
+  <p style="color: var(--ve-text-dim); font-size: 0.9rem;">Each sampled record traverses audit + test states and lands in a terminal state tracked per-surface (drawer, detail).</p>
+  <div class="ve-diagram-shell">
+    <div class="ve-diagram-controls">
+      <button class="ve-zoom-btn" data-action="zoom-in" title="Zoom in">+</button>
+      <button class="ve-zoom-btn" data-action="zoom-out" title="Zoom out">-</button>
+      <button class="ve-zoom-btn" data-action="reset" title="Reset zoom">Reset</button>
+    </div>
+    <div class="ve-diagram-viewport">
+      <pre class="mermaid">
+flowchart TD
+  SAMPLED["Sampled (AU-1)"]
+  AUDITED["DB-audited (AU-2)"]
+  DPASS["Drawer PASS"]
+  DFAIL["Drawer FAIL (missing sections)"]
+  DCRASH["Drawer CRASH"]
+  DUNREACH["Drawer UNREACHABLE"]
+  XPASS["Detail PASS"]
+  XFAIL["Detail FAIL"]
+  CLOSED["Parity CLOSED"]
+
+  SAMPLED -->|"AU-2 scan"| AUDITED
+  AUDITED -->|"AU-4 pass"| DPASS
+  AUDITED -->|"AU-4 missing"| DFAIL
+  AUDITED -->|"AU-4 no title"| DCRASH
+  AUDITED -->|"card not on page"| DUNREACH
+  AUDITED -->|"AU-5 pass"| XPASS
+  AUDITED -->|"AU-5 missing"| XFAIL
+  DFAIL -->|"AU-6 and AU-8 ship; rerun"| DPASS
+  DCRASH -->|"AU-6 parser fix; rerun"| DPASS
+  DUNREACH -->|"AU-8 openTech deep link"| DPASS
+  DPASS --> CLOSED
+  XPASS --> CLOSED
+
+  classDef terminal fill:#16a34a22,stroke:#16a34a,stroke-width:3px
+  classDef fail fill:#dc262622,stroke:#dc2626
+  classDef deadEnd fill:#d9770644,stroke:#d97706,stroke-dasharray: 5 5
+  class CLOSED terminal
+  class DFAIL,DCRASH,DUNREACH fail
+  class XFAIL deadEnd
+      </pre>
+    </div>
+  </div>
+
+  <div class="ve-detail-grid">
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Sampled</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> AU-1 includes this record in the stratified 15-per-uni sample.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> AU-2 auditor runs.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">DB-audited</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> db-coverage.json entry written for this uuid.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> Playwright drawer + detail specs run.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Drawer PASS / Detail PASS</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> All expected sections visible; no CRASH.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> Closed — contributes to matrix pass rate.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Drawer FAIL</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> title visible but ≥1 expected section missing.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> AU-6/AU-8 fixes + <code>migration-qa run --reuse-samples</code>.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Drawer CRASH</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> drawer opens but tech.title never renders.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> AU-6 parser fix (Array.isArray on unguarded field) + rerun.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Drawer UNREACHABLE</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> data-uuid selector finds no card in Discovery listing.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> AU-8 adds <code>?openTech=</code> deep link as alternate opener.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Detail FAIL</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> DetailPage renders but ≥1 expected section missing. Rare — DetailPage already works in prod.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> Plan does NOT define an exit transition — DetailPage fixes are ad-hoc AU-6/AU-7 side effects.</div>
+      </div>
+    </div>
+    <div class="ve-detail-card" data-type="state">
+      <div class="ve-detail-card-header">Parity CLOSED (terminal)</div>
+      <div class="ve-detail-card-body">
+        <div class="ve-detail-field"><span class="ve-field-label">Entry:</span> Both drawer and detail PASS for a record.</div>
+        <div class="ve-detail-field"><span class="ve-field-label">Exit:</span> none — terminal; contributes to AU-10 sign-off pass rate.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ve-gap-flag" data-severity="warning">
+    <div class="ve-gap-flag-icon">!</div>
+    <div class="ve-gap-flag-content">
+      <div class="ve-gap-flag-title">Dead-end state: Detail FAIL has no explicit remediation path</div>
+      <div class="ve-gap-flag-detail">The plan assumes DetailPage regressions are rare (it already works) and that AU-6/AU-7 side-effects will fix any. If an audit surfaces a DetailPage-only gap, there is no AU to absorb the fix — it becomes an undeclared scope expansion during /build. Consider adding a verification step in AU-9 that flags any Detail FAIL as blocking AU-10.</div>
+    </div>
+  </div>
+</section>
+
+<section id="gaps" class="ve-section">
+  <h2>Gap Summary</h2>
+  <div class="ve-gap-summary">
+    <div class="ve-gap-group">
+      <h3>Dependency Graph</h3>
+      <div class="ve-gap-flag" data-severity="warning">
+        <div class="ve-gap-flag-icon">!</div>
+        <div class="ve-gap-flag-content">
+          <div class="ve-gap-flag-title">High-impact file: <code>src/cli.py</code> is touched by 4 AUs (AU-1, AU-2, AU-9, AU-10)</div>
+          <div class="ve-gap-flag-detail">Register each subcommand as an atomic edit; avoid refactoring the Click group structure mid-flight.</div>
+        </div>
+      </div>
+      <div class="ve-gap-flag" data-severity="warning">
+        <div class="ve-gap-flag-icon">!</div>
+        <div class="ve-gap-flag-content">
+          <div class="ve-gap-flag-title">High-impact artifact: <code>samples-latest.json</code> is consumed by 4 AUs (AU-2, AU-4, AU-5, AU-9)</div>
+          <div class="ve-gap-flag-detail">Pin the JSON shape in AU-1's module docstring; every downstream consumer should reference it by version.</div>
+        </div>
+      </div>
+    </div>
+    <div class="ve-gap-group">
+      <h3>Logic Flows</h3>
+      <div class="ve-gap-flag" data-severity="info">
+        <div class="ve-gap-flag-icon">i</div>
+        <div class="ve-gap-flag-content">
+          <div class="ve-gap-flag-title">Matrix generation aborts on missing JSON but relies on Playwright's own retry policy for transient flake</div>
+          <div class="ve-gap-flag-detail"><code>retries: 2</code> in playwright.config.ts absorbs Railway cold-start delays; orchestrator does not add its own retry layer.</div>
+        </div>
+      </div>
+    </div>
+    <div class="ve-gap-group">
+      <h3>Data Flow</h3>
+      <div class="ve-gap-flag" data-severity="info">
+        <div class="ve-gap-flag-icon">i</div>
+        <div class="ve-gap-flag-content">
+          <div class="ve-gap-flag-title"><code>section_catalog.py</code> and <code>section-selectors.ts</code> stay in sync by convention</div>
+          <div class="ve-gap-flag-detail">No codegen bridge. Drift risk if a new UI section is added to <code>parseRawData</code> but not to the catalog. Consider generating the TS fixture from catalog JSON during /build if the list grows past ~30 sections.</div>
+        </div>
+      </div>
+    </div>
+    <div class="ve-gap-group">
+      <h3>State Machine</h3>
+      <div class="ve-gap-flag" data-severity="warning">
+        <div class="ve-gap-flag-icon">!</div>
+        <div class="ve-gap-flag-content">
+          <div class="ve-gap-flag-title">Dead-end state: Detail FAIL has no declared remediation path</div>
+          <div class="ve-gap-flag-detail">Add a verification step in AU-9: any Detail FAIL blocks AU-10 until resolved. Otherwise an AU-6/AU-7 side-effect fix becomes silent scope expansion.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+const lightVars = {
+  primaryColor: '#4a90d9',
+  primaryTextColor: '#1a1a2e',
+  primaryBorderColor: '#2563eb',
+  lineColor: '#64748b',
+  secondaryColor: '#e2e8f0',
+  tertiaryColor: '#f1f5f9',
+  background: '#ffffff',
+  mainBkg: '#f8fafc',
+  nodeBorder: '#cbd5e1',
+  clusterBkg: '#f1f5f933',
+  clusterBorder: '#cbd5e1',
+  titleColor: '#1e293b',
+  edgeLabelBackground: '#ffffff'
+};
+const darkVars = {
+  primaryColor: '#60a5fa',
+  primaryTextColor: '#e2e8f0',
+  primaryBorderColor: '#3b82f6',
+  lineColor: '#94a3b8',
+  secondaryColor: '#334155',
+  tertiaryColor: '#1e293b',
+  background: '#0f172a',
+  mainBkg: '#1e293b',
+  nodeBorder: '#475569',
+  clusterBkg: '#1e293b33',
+  clusterBorder: '#475569',
+  titleColor: '#f1f5f9',
+  edgeLabelBackground: '#1e293b'
+};
+
+const panZoomInstances = new Map();
+
+function isDark() { return window.matchMedia('(prefers-color-scheme: dark)').matches; }
+
+function storeSources() {
+  document.querySelectorAll('pre.mermaid').forEach(el => {
+    if (!el.dataset.diagram) el.dataset.diagram = el.textContent.trim();
+  });
+}
+
+async function renderAll() {
+  const dark = isDark();
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    securityLevel: 'strict',
+    themeVariables: dark ? darkVars : lightVars
+  });
+
+  panZoomInstances.forEach(inst => inst.destroy());
+  panZoomInstances.clear();
+
+  document.querySelectorAll('pre.mermaid').forEach(el => {
+    el.removeAttribute('data-processed');
+    el.innerHTML = el.dataset.diagram;
+  });
+
+  await mermaid.run({ querySelector: 'pre.mermaid' });
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.querySelectorAll('pre.mermaid svg').forEach((svg, i) => {
+        svg.style.maxWidth = 'none';
+        if (!svg.id) svg.id = 've-svg-' + i + '-' + Date.now();
+        try {
+          const inst = svgPanZoom(svg, {
+            zoomEnabled: true,
+            panEnabled: true,
+            fit: false,
+            center: false,
+            minZoom: 0.3,
+            maxZoom: 10,
+            controlIconsEnabled: false
+          });
+          panZoomInstances.set(svg, inst);
+        } catch (e) { console.warn('svg-pan-zoom init failed', e); }
+      });
+    });
+  });
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.ve-zoom-btn');
+  if (!btn) return;
+  const shell = btn.closest('.ve-diagram-shell');
+  const svg = shell && shell.querySelector('svg');
+  if (!svg) return;
+  const inst = panZoomInstances.get(svg);
+  if (!inst) return;
+  const action = btn.dataset.action;
+  if (action === 'zoom-in') inst.zoomIn();
+  else if (action === 'zoom-out') inst.zoomOut();
+  else if (action === 'reset') { inst.resetZoom(); inst.fit(); inst.center(); }
+});
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderAll);
+
+const navLinks = document.querySelectorAll('.ve-nav-link');
+const sections = document.querySelectorAll('section.ve-section');
+const navMap = new Map();
+navLinks.forEach(a => {
+  const id = a.getAttribute('href').slice(1);
+  navMap.set(id, a);
+});
+const io = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove('ve-nav-active'));
+      const link = navMap.get(entry.target.id);
+      if (link) link.classList.add('ve-nav-active');
+    }
+  });
+}, { rootMargin: '-40% 0px -55% 0px' });
+sections.forEach(s => io.observe(s));
+
+storeSources();
+renderAll();
+</script>
+</body>
+</html>

@@ -2,7 +2,40 @@ import { useEffect, useState } from 'react'
 import { Icon } from '../Layout/Icon'
 import { useTechnology } from '../../hooks/useTechnology'
 import { getUniversityName } from '../../utils/universityNames'
-import { parseRawData, stripHtml } from '../Detail/parseRawData'
+import { parseRawData } from '../Detail/parseRawData'
+import {
+  SubtitleSection,
+  SummarySection,
+  AbstractSection,
+  OverviewSection,
+  DescriptionSection,
+  TechnicalProblemSection,
+  SolutionSection,
+  BackgroundSection,
+  FullDescriptionSection,
+  BenefitsSection,
+  MarketOpportunitySection,
+  DevelopmentStageSection,
+  TrlSection,
+  KeyPointsSection,
+  ApplicationsSection,
+  AdvantagesSection,
+  TechnologyValidationSection,
+  PublicationsSection,
+  IpStatusSection,
+  ResearchersSection,
+  InventorsSection,
+  DepartmentsSection,
+  ContactsSection,
+  ClassificationSection,
+  KeywordsSection,
+  TagsSection,
+  DocumentsSection,
+  ContactDetailSection,
+  LicensingContactSection,
+  RelatedPortfolioSection,
+  SourceLinkSection,
+} from '../Detail/sections'
 import type { TechnologyDetail } from '../../api/types'
 
 interface DiscoveryDrawerProps {
@@ -133,118 +166,45 @@ function DrawerContent({ uuid, onClose }: { uuid: string; onClose: () => void })
 }
 
 function DrawerBody({ tech }: { tech: TechnologyDetail }) {
-  const parsed = parseRawData(tech)
-  const desc =
-    tech.description ||
-    parsed.shortDescription ||
-    parsed.fullDescription ||
-    parsed.abstractText ||
-    ''
-
+  const data = parseRawData(tech)
+  // Drawer parity: render the same sections DetailPage renders, in a
+  // single-column stack. AssessmentSection stays DetailPage-only (explicit
+  // Scope Boundaries exclusion in the Migration-QA plan).
   return (
-    <>
-      {desc && (
-        <div className="section">
-          <h4 className="section__head">Description</h4>
-          <p>{stripHtml(desc)}</p>
-        </div>
-      )}
-
-      {parsed.applications && parsed.applications.length > 0 && (
-        <div className="section">
-          <h4 className="section__head">Applications</h4>
-          <ul>
-            {parsed.applications.map((x, i) => (
-              <li key={i}>{stripHtml(x)}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {parsed.advantages && parsed.advantages.length > 0 && (
-        <div className="section">
-          <h4 className="section__head">Advantages</h4>
-          <ul>
-            {parsed.advantages.map((x, i) => (
-              <li key={i}>{stripHtml(x)}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {parsed.keyPoints && parsed.keyPoints.length > 0 && (
-        <div className="section">
-          <h4 className="section__head">Key Points</h4>
-          <ul>
-            {parsed.keyPoints.map((x, i) => (
-              <li key={i}>{stripHtml(x)}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="section">
-        <h4 className="section__head">Record Metadata</h4>
-        <dl className="kv-grid">
-          {parsed.developmentStage && (
-            <>
-              <dt>Development stage</dt>
-              <dd>{parsed.developmentStage}</dd>
-            </>
-          )}
-          {parsed.marketOpportunity && (
-            <>
-              <dt>Market context</dt>
-              <dd>{stripHtml(parsed.marketOpportunity)}</dd>
-            </>
-          )}
-          {parsed.inventors && parsed.inventors.length > 0 && (
-            <>
-              <dt>Inventors</dt>
-              <dd>{parsed.inventors.join(', ')}</dd>
-            </>
-          )}
-          {tech.keywords && tech.keywords.length > 0 && (
-            <>
-              <dt>Keywords</dt>
-              <dd>
-                <div className="tag-row">
-                  {tech.keywords.map((k) => (
-                    <span key={k} className="kw">
-                      {k}
-                    </span>
-                  ))}
-                </div>
-              </dd>
-            </>
-          )}
-          {tech.patent_geography && tech.patent_geography.length > 0 && (
-            <>
-              <dt>Patent geography</dt>
-              <dd className="mono">{tech.patent_geography.join(' · ')}</dd>
-            </>
-          )}
-        </dl>
+    <div className="drawer-sections">
+      <SubtitleSection tech={tech} data={data} />
+      <SummarySection tech={tech} data={data} />
+      <AbstractSection tech={tech} data={data} />
+      <OverviewSection tech={tech} data={data} />
+      <DescriptionSection tech={tech} data={data} />
+      <TechnicalProblemSection tech={tech} data={data} />
+      <SolutionSection tech={tech} data={data} />
+      <BackgroundSection tech={tech} data={data} />
+      <FullDescriptionSection tech={tech} data={data} />
+      <BenefitsSection tech={tech} data={data} />
+      <MarketOpportunitySection tech={tech} data={data} />
+      <DevelopmentStageSection tech={tech} data={data} />
+      <TrlSection tech={tech} data={data} />
+      <KeyPointsSection tech={tech} data={data} />
+      <ApplicationsSection tech={tech} data={data} />
+      <AdvantagesSection tech={tech} data={data} />
+      <TechnologyValidationSection tech={tech} data={data} />
+      <PublicationsSection tech={tech} data={data} />
+      <IpStatusSection tech={tech} data={data} />
+      <div className="drawer-sections__side">
+        <ResearchersSection tech={tech} data={data} />
+        <InventorsSection tech={tech} data={data} />
+        <DepartmentsSection tech={tech} data={data} />
+        <ContactsSection tech={tech} data={data} />
+        <ClassificationSection tech={tech} data={data} />
+        <KeywordsSection tech={tech} data={data} />
+        <TagsSection tech={tech} data={data} />
+        <DocumentsSection tech={tech} data={data} />
+        <ContactDetailSection tech={tech} data={data} />
+        <LicensingContactSection tech={tech} data={data} />
+        <RelatedPortfolioSection tech={tech} data={data} />
+        <SourceLinkSection tech={tech} data={data} />
       </div>
-
-      {parsed.publicationsList && parsed.publicationsList.length > 0 && (
-        <div className="section">
-          <h4 className="section__head">Publications</h4>
-          <ul>
-            {parsed.publicationsList.map((p, i) => (
-              <li key={i}>
-                {p.url ? (
-                  <a href={p.url} target="_blank" rel="noreferrer">
-                    {p.text || p.url}
-                  </a>
-                ) : (
-                  p.text
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </>
+    </div>
   )
 }
