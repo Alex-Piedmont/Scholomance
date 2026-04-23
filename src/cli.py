@@ -25,7 +25,9 @@ from .qa.migration_sampler import run_sampler, SAMPLE_SIZE
 from .qa.migration_audit import run_audit
 from .qa.section_catalog import CATALOG as MQA_CATALOG
 from .qa.matrix import run_matrix
+from .qa.production_run import run_production, SHAMismatch
 import subprocess
+import shutil
 
 # Configure console for rich output
 console = Console()
@@ -1675,6 +1677,36 @@ def migration_qa_run(
     console.print("[bold blue]Step 4/4: Matrix[/bold blue]")
     run_matrix()
     console.print("\n[bold green]Done.[/bold green] See docs/qa/migration-matrix-latest.md")
+
+
+@migration_qa.command("prod")
+@click.option("--ref", default="origin/Migration-QA", help="Git ref whose SHA must match the deployed build")
+@click.option("--base-url", default="https://web-one-lake-22.vercel.app", help="Vercel URL to target")
+@click.option("--skip-sha-gate", is_flag=True, help="Bypass SHA check (use when Vercel lacks a commit-sha surface)")
+def migration_qa_prod(ref: str, base_url: str, skip_sha_gate: bool) -> None:
+    """Production sign-off: run the suite against the live Vercel URL.
+
+    Gated on the deployed commit SHA matching `--ref` (default
+    origin/Migration-QA). Emits docs/qa/migration-matrix-latest.md plus a
+    -prod-suffixed copy as the signed-off artifact.
+    """
+    console.print(f"[bold blue]Production sign-off ref={ref} url={base_url}[/bold blue]")
+    try:
+        run_production(ref=ref, base_url=base_url, skip_sha_gate=skip_sha_gate)
+    except SHAMismatch as e:
+        console.print(f"[red]Aborted:[/red] {e}")
+        raise SystemExit(1)
+
+    from datetime import datetime, timezone
+    iso_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    qa_dir = Path(__file__).resolve().parents[1].parent / "docs" / "qa"
+    src_md = qa_dir / "migration-matrix-latest.md"
+    src_json = qa_dir / "migration-matrix-latest.json"
+    dst_md = qa_dir / f"migration-matrix-{iso_date}-prod.md"
+    dst_json = qa_dir / f"migration-matrix-{iso_date}-prod.json"
+    shutil.copy2(src_md, dst_md)
+    shutil.copy2(src_json, dst_json)
+    console.print(f"[bold green]Signed-off artifact:[/bold green] {dst_md.relative_to(Path.cwd())}")
 
 
 if __name__ == "__main__":
