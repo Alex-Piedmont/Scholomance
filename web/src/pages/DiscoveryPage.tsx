@@ -16,7 +16,12 @@ export function DiscoveryPage() {
   const [mode, setMode] = useState<SearchMode>('semantic')
   const [query, setQuery] = useState(searchParams.get('q') || '')
   const [committedQuery, setCommittedQuery] = useState(query)
-  const [selectedUuid, setSelectedUuid] = useState<string | null>(null)
+  // Deep-link surface for Playwright and bookmarks: ?openTech=<uuid>
+  // hydrates the drawer on mount. Additive — does not round-trip to URL
+  // when the drawer is opened by click (preserves existing UX).
+  const [selectedUuid, setSelectedUuid] = useState<string | null>(
+    () => searchParams.get('openTech') || null,
+  )
   const searchRef = useRef<HTMLInputElement>(null)
 
   const [facets, setFacets] = useState<FacetState>({
@@ -27,17 +32,6 @@ export function DiscoveryPage() {
     const t = setTimeout(() => setCommittedQuery(query), 250)
     return () => clearTimeout(t)
   }, [query])
-
-  // Deep-link surface for Playwright and bookmarks: ?openTech=<uuid>
-  // hydrates the drawer on mount. Additive — does not round-trip to URL
-  // when the drawer is opened by click (preserves existing UX).
-  useEffect(() => {
-    const openTech = searchParams.get('openTech')
-    if (openTech) {
-      setSelectedUuid(openTech)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

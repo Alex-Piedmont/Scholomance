@@ -1,5 +1,4 @@
 import type React from 'react'
-import { stripHtml } from '../parseRawData'
 
 export function ContentSectionWrapper({
   title,
@@ -95,5 +94,3 @@ export function DocIcon() {
     </svg>
   )
 }
-
-export { stripHtml }

@@ -3,8 +3,8 @@ import {
   BulletSection,
   CheckmarkListSection,
   ContentSectionWrapper,
-  stripHtml,
 } from './primitives'
+import { stripHtml } from '../parseRawData'
 import type { SectionProps } from './types'
 
 /** Italic subtitle inline (no heading). Tagged with data-section for tests. */
