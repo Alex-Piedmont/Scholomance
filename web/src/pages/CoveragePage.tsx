@@ -80,18 +80,6 @@ export function CoveragePage() {
     setFilters({ ...filters, ...partial })
   }
 
-  if (error) {
-    return (
-      <div className="page">
-        <div className="page__intro">
-          <div className="eyebrow">Pipeline · Independent coverage</div>
-          <h1 className="page__title">Coverage review</h1>
-        </div>
-        <ErrorMessage message="Failed to load coverage items. Please try again." onRetry={refetch} />
-      </div>
-    )
-  }
-
   const items = data?.items || []
   const total = data?.total || 0
 
@@ -187,7 +175,9 @@ export function CoveragePage() {
 
       <div className="results-meta">
         <div>
-          {loading && !data ? (
+          {error ? (
+            <span className="muted">Failed to load coverage items.</span>
+          ) : loading && !data ? (
             <span className="muted">Loading…</span>
           ) : (
             <>
@@ -198,7 +188,9 @@ export function CoveragePage() {
         <div className="sort-hint">Keyed by Monday packet week · not TTO listings</div>
       </div>
 
-      {!loading && items.length === 0 ? (
+      {error ? (
+        <ErrorMessage message="Failed to load coverage items. Please try again." onRetry={refetch} />
+      ) : !loading && items.length === 0 ? (
         <div className="empty-state">
           <h3>No coverage finds</h3>
           <p>
