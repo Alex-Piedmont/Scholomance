@@ -57,6 +57,12 @@ export function Layout() {
               >
                 Discover
               </NavLink>
+              <NavLink
+                to="/coverage"
+                className={({ isActive }) => (isActive ? 'is-active' : undefined)}
+              >
+                Coverage
+              </NavLink>
               <button type="button" onClick={onGatedClick('Enrich')}>
                 Enrich
               </button>

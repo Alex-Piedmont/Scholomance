@@ -9,6 +9,8 @@ import {
   OpportunitiesPage,
   QAPage,
   QAReviewPage,
+  CoveragePage,
+  CoverageDetailPage,
 } from './pages'
 
 function App() {
@@ -25,6 +27,8 @@ function App() {
             <Route path="/qa" element={<QAPage />} />
             <Route path="/qa/:uuid" element={<QAReviewPage />} />
             <Route path="/qa/by-id/:dbId" element={<QAReviewPage />} />
+            <Route path="/coverage" element={<CoveragePage />} />
+            <Route path="/coverage/:id" element={<CoverageDetailPage />} />
           </Route>
         </Routes>
       </ErrorBoundary>
