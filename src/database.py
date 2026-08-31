@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from typing import Any, Optional
 from contextlib import contextmanager
+from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import (
     create_engine,
@@ -10,11 +12,13 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Date,
     DateTime,
     Boolean,
     DECIMAL,
     ForeignKey,
     UniqueConstraint,
+    CheckConstraint,
     func,
     or_,
     Index,
@@ -280,6 +284,119 @@ class ClassificationLog(Base):
         return f"<ClassificationLog(id={self.id}, technology_id={self.technology_id})>"
 
 
+class CoverageItem(Base):
+    """Independent weekly coverage find. Not a TTO listing.
+
+    Optional ``technology_uuid`` is a best-effort join to ``technologies.uuid``
+    (no FK). Unmatched items stay NULL. Pipeline workflow hangs off this row,
+    never off a scraped listing.
+    """
+
+    __tablename__ = "coverage_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    technology_uuid = Column(UUID(as_uuid=True), nullable=True)
+    university = Column(Text)
+    headline = Column(Text, nullable=False)
+    summary = Column(Text)
+    capability = Column(Text)
+    sources = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    source_class = Column(Text, nullable=False)
+    independence_note = Column(Text)
+    coverage_date = Column(Date)
+    packet_week = Column(Date)
+    match_status = Column(Text, nullable=False, default="unmatched", server_default=text("'unmatched'"))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    decisions = relationship(
+        "PipelineDecision",
+        back_populates="coverage_item",
+        cascade="all, delete-orphan",
+        order_by="PipelineDecision.created_at.desc()",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_class IN ('newspaper_tv', 'specialist')",
+            name="coverage_items_source_class_check",
+        ),
+        CheckConstraint(
+            "match_status IN ('matched', 'unmatched', 'candidate')",
+            name="coverage_items_match_status_check",
+        ),
+        Index("idx_coverage_items_technology_uuid", "technology_uuid"),
+        Index("idx_coverage_items_packet_week", "packet_week"),
+        Index("idx_coverage_items_university", "university"),
+        {"extend_existing": True},
+    )
+
+    def __repr__(self):
+        return f"<CoverageItem(id={self.id}, headline={self.headline!r}, match_status={self.match_status})>"
+
+
+class PipelineDecision(Base):
+    """Hold / proceed / archive (etc.) decision for a coverage item.
+
+    Not a column on ``technologies``. ``technology_uuid`` is optional context
+    copied from the coverage item at decision time.
+    """
+
+    __tablename__ = "pipeline_decisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    coverage_item_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("coverage_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    technology_uuid = Column(UUID(as_uuid=True), nullable=True)
+    user_story = Column(Text, nullable=False)
+    status = Column(Text, nullable=False)
+    blocker = Column(Text)
+    signed_off_at = Column(DateTime(timezone=True))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    coverage_item = relationship("CoverageItem", back_populates="decisions")
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('greenlit', 'hold', 'proceed', 'archive', 'dropped')",
+            name="pipeline_decisions_status_check",
+        ),
+        Index("idx_pipeline_decisions_coverage_item_id", "coverage_item_id"),
+        Index("idx_pipeline_decisions_technology_uuid", "technology_uuid"),
+        Index("idx_pipeline_decisions_status", "status"),
+        {"extend_existing": True},
+    )
+
+    def __repr__(self):
+        return f"<PipelineDecision(id={self.id}, status={self.status}, coverage_item_id={self.coverage_item_id})>"
+
+
 class Database:
     """Database manager class for all database operations."""
 
@@ -302,9 +419,36 @@ class Database:
             session.close()
 
     def init_db(self) -> None:
-        """Initialize database tables (use schema.sql for full setup)."""
+        """Initialize database tables (use schema.sql for full setup).
+
+        ``create_all`` is a no-op for tables that already exist, including the
+        production ``coverage_items`` / ``pipeline_decisions`` tables. A
+        matching IF NOT EXISTS SQL file lives at
+        ``migrations/001_coverage_pipeline.sql`` for explicit ``psql`` apply.
+        """
         Base.metadata.create_all(self.engine)
+        self.ensure_coverage_schema()
         logger.info("Database tables created")
+
+    def ensure_coverage_schema(self) -> None:
+        """Create coverage/pipeline tables and indexes if they are missing.
+
+        Safe on production: every statement is IF NOT EXISTS. Does not drop,
+        alter, or recreate existing objects.
+        """
+        sql_path = Path(__file__).resolve().parent.parent / "migrations" / "001_coverage_pipeline.sql"
+        if not sql_path.is_file():
+            logger.warning("Coverage schema SQL not found at {}", sql_path)
+            return
+        raw = sql_path.read_text()
+        cleaned_lines = [
+            line for line in raw.splitlines() if not line.strip().startswith("--")
+        ]
+        statements = [s.strip() for s in "\n".join(cleaned_lines).split(";") if s.strip()]
+        with self.engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+        logger.info("Coverage schema ensured (IF NOT EXISTS)")
 
     def insert_technology(
         self,

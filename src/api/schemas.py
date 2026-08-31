@@ -1,9 +1,10 @@
 """Pydantic schemas for API responses."""
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
-from pydantic import BaseModel
+from typing import Any, Literal, Optional
+from uuid import UUID
+from pydantic import BaseModel, Field
 
 
 # Stats schemas
@@ -181,3 +182,142 @@ class ChatResponse(BaseModel):
     technologies: list[ChatTechnology]
     fallback: bool = False
     llm_available: bool = True
+
+
+# Coverage / pipeline-decision schemas
+# These are independent of TTO listing rows (Technology*).
+
+SourceClass = Literal["newspaper_tv", "specialist"]
+MatchStatus = Literal["matched", "unmatched", "candidate"]
+DecisionStatus = Literal["greenlit", "hold", "proceed", "archive", "dropped"]
+
+
+class PipelineDecisionResponse(BaseModel):
+    id: str
+    coverage_item_id: str
+    technology_uuid: Optional[str] = None
+    user_story: str
+    status: DecisionStatus
+    blocker: Optional[str] = None
+    signed_off_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PipelineDecisionCreate(BaseModel):
+    user_story: str
+    status: DecisionStatus
+    technology_uuid: Optional[UUID] = None
+    blocker: Optional[str] = None
+    signed_off_at: Optional[datetime] = None
+
+
+class PipelineDecisionUpdate(BaseModel):
+    user_story: Optional[str] = None
+    status: Optional[DecisionStatus] = None
+    technology_uuid: Optional[UUID] = None
+    blocker: Optional[str] = None
+    signed_off_at: Optional[datetime] = None
+
+
+class CoverageItemResponse(BaseModel):
+    id: str
+    technology_uuid: Optional[str] = None
+    university: Optional[str] = None
+    headline: str
+    summary: Optional[str] = None
+    capability: Optional[str] = None
+    sources: list[Any] = Field(default_factory=list)
+    source_class: SourceClass
+    independence_note: Optional[str] = None
+    coverage_date: Optional[date] = None
+    packet_week: Optional[date] = None
+    match_status: MatchStatus
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    latest_decision: Optional[PipelineDecisionResponse] = None
+    decisions: Optional[list[PipelineDecisionResponse]] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CoverageItemCreate(BaseModel):
+    headline: str
+    source_class: SourceClass
+    university: Optional[str] = None
+    summary: Optional[str] = None
+    capability: Optional[str] = None
+    sources: list[Any] = Field(default_factory=list)
+    independence_note: Optional[str] = None
+    coverage_date: Optional[date] = None
+    packet_week: Optional[date] = None
+    technology_uuid: Optional[UUID] = None
+    match_status: Optional[MatchStatus] = None
+
+
+class CoverageItemUpdate(BaseModel):
+    headline: Optional[str] = None
+    source_class: Optional[SourceClass] = None
+    university: Optional[str] = None
+    summary: Optional[str] = None
+    capability: Optional[str] = None
+    sources: Optional[list[Any]] = None
+    independence_note: Optional[str] = None
+    coverage_date: Optional[date] = None
+    packet_week: Optional[date] = None
+    technology_uuid: Optional[UUID] = None
+    match_status: Optional[MatchStatus] = None
+
+
+class CoverageUpsertRequest(BaseModel):
+    """Weekly packet upsert. One item, or a batch under ``items``."""
+
+    items: Optional[list[CoverageItemCreate]] = None
+    headline: Optional[str] = None
+    source_class: Optional[SourceClass] = None
+    university: Optional[str] = None
+    summary: Optional[str] = None
+    capability: Optional[str] = None
+    sources: Optional[list[Any]] = None
+    independence_note: Optional[str] = None
+    coverage_date: Optional[date] = None
+    packet_week: Optional[date] = None
+    technology_uuid: Optional[UUID] = None
+    match_status: Optional[MatchStatus] = None
+    auto_match: bool = True
+
+
+class CoverageUpsertItemResult(BaseModel):
+    item: CoverageItemResponse
+    created: bool
+
+
+class CoverageUpsertResponse(BaseModel):
+    items: list[CoverageUpsertItemResult]
+    created: int
+    updated: int
+
+
+class PaginatedCoverage(BaseModel):
+    items: list[CoverageItemResponse]
+    total: int
+    page: int
+    pages: int
+    limit: int
+
+
+class CoverageWeekCount(BaseModel):
+    packet_week: date
+    count: int
+
+
+class PaginatedDecisions(BaseModel):
+    items: list[PipelineDecisionResponse]
+    total: int
+    page: int
+    pages: int
+    limit: int

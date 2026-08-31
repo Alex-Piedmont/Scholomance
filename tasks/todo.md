@@ -23,6 +23,14 @@
 - [x] Removed _init_browser/_close_browser backwards-compat stubs
 - [x] All 13 Flintbox scrapers now share the same inheritance path; all 35 scrapers load successfully
 
+## Completed - Coverage + pipeline decisions (2026-08-28)
+
+- [x] SQLAlchemy models for live `coverage_items` / `pipeline_decisions` (no drop/recreate; no FK onto technologies)
+- [x] Idempotent schema: `schema.sql` + `migrations/001_coverage_pipeline.sql` (IF NOT EXISTS; no-op on production)
+- [x] API create/list/update + weekly upsert keyed by Monday `packet_week` + headline + university
+- [x] Frontend `/coverage` review UI; pipeline fields are not on TTO listing rows
+- [x] Tests for unmatched saves, upsert create vs update, and decision endpoints
+
 ## Next Steps
 
 ### Scheduler / Cron Job Infrastructure
@@ -53,3 +61,4 @@
 - [ ] schema.sql is kept as human-readable reference; SQLAlchemy ORM is the runtime source of truth
 - [ ] field_taxonomy table exists in schema.sql but has no SQLAlchemy model — decide if it's needed
 - [ ] Document the initialization flow (Base.metadata.create_all vs psql -f schema.sql)
+- [x] Coverage/pipeline tables: `create_all` + IF NOT EXISTS SQL; do not DROP/recreate production objects

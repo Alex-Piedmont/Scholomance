@@ -222,3 +222,121 @@ export interface ChatResponse {
   fallback: boolean
   llm_available: boolean
 }
+
+// Coverage / pipeline-decision types (not TTO listings)
+export type SourceClass = 'newspaper_tv' | 'specialist'
+export type MatchStatus = 'matched' | 'unmatched' | 'candidate'
+export type DecisionStatus = 'greenlit' | 'hold' | 'proceed' | 'archive' | 'dropped'
+
+export interface CoverageSource {
+  url?: string
+  title?: string
+  publisher?: string
+  [key: string]: unknown
+}
+
+export interface PipelineDecision {
+  id: string
+  coverage_item_id: string
+  technology_uuid: string | null
+  user_story: string
+  status: DecisionStatus
+  blocker: string | null
+  signed_off_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface CoverageItem {
+  id: string
+  technology_uuid: string | null
+  university: string | null
+  headline: string
+  summary: string | null
+  capability: string | null
+  sources: CoverageSource[] | string[]
+  source_class: SourceClass
+  independence_note: string | null
+  coverage_date: string | null
+  packet_week: string | null
+  match_status: MatchStatus
+  created_at: string | null
+  updated_at: string | null
+  latest_decision: PipelineDecision | null
+  decisions: PipelineDecision[] | null
+}
+
+export interface PaginatedCoverage {
+  items: CoverageItem[]
+  total: number
+  page: number
+  pages: number
+  limit: number
+}
+
+export interface CoverageWeekCount {
+  packet_week: string
+  count: number
+}
+
+export interface CoverageFilters {
+  page?: number
+  limit?: number
+  q?: string
+  packet_week?: string
+  university?: string
+  match_status?: MatchStatus
+  source_class?: SourceClass
+  decision_status?: DecisionStatus
+  unmatched_only?: boolean
+}
+
+export interface CoverageItemCreate {
+  headline: string
+  source_class: SourceClass
+  university?: string | null
+  summary?: string | null
+  capability?: string | null
+  sources?: CoverageSource[]
+  independence_note?: string | null
+  coverage_date?: string | null
+  packet_week?: string | null
+  technology_uuid?: string | null
+  match_status?: MatchStatus
+}
+
+export interface CoverageItemUpdate {
+  headline?: string
+  source_class?: SourceClass
+  university?: string | null
+  summary?: string | null
+  capability?: string | null
+  sources?: CoverageSource[]
+  independence_note?: string | null
+  coverage_date?: string | null
+  packet_week?: string | null
+  technology_uuid?: string | null
+  match_status?: MatchStatus
+}
+
+export interface PipelineDecisionCreate {
+  user_story: string
+  status: DecisionStatus
+  technology_uuid?: string | null
+  blocker?: string | null
+  signed_off_at?: string | null
+}
+
+export interface PipelineDecisionUpdate {
+  user_story?: string
+  status?: DecisionStatus
+  technology_uuid?: string | null
+  blocker?: string | null
+  signed_off_at?: string | null
+}
+
+export interface CoverageUpsertResponse {
+  items: Array<{ item: CoverageItem; created: boolean }>
+  created: number
+  updated: number
+}

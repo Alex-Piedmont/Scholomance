@@ -18,6 +18,16 @@ import type {
   QARefreshResult,
   ChatRequest,
   ChatResponse,
+  CoverageFilters,
+  CoverageItem,
+  CoverageItemCreate,
+  CoverageItemUpdate,
+  CoverageUpsertResponse,
+  CoverageWeekCount,
+  PaginatedCoverage,
+  PipelineDecision,
+  PipelineDecisionCreate,
+  PipelineDecisionUpdate,
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
@@ -198,6 +208,49 @@ export const qaApi = {
 export const chatApi = {
   send: (request: ChatRequest) =>
     postJsonWithBody<ChatResponse>('/chat', request),
+}
+
+async function patchJson<T>(endpoint: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    throw new ApiError(response.status, `API error: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+export const coverageApi = {
+  list: (filters: CoverageFilters = {}) => {
+    const query = buildQueryString(filters as Record<string, unknown>)
+    return fetchJson<PaginatedCoverage>(`/coverage${query}`)
+  },
+
+  weeks: () => fetchJson<CoverageWeekCount[]>('/coverage/weeks'),
+
+  get: (id: string) => fetchJson<CoverageItem>(`/coverage/${id}`),
+
+  create: (body: CoverageItemCreate) =>
+    postJsonWithBody<CoverageItem>('/coverage', body),
+
+  upsert: (body: CoverageItemCreate | { items: CoverageItemCreate[]; packet_week?: string; auto_match?: boolean }) =>
+    postJsonWithBody<CoverageUpsertResponse>('/coverage/upsert', body),
+
+  update: (id: string, body: CoverageItemUpdate) =>
+    patchJson<CoverageItem>(`/coverage/${id}`, body),
+
+  listDecisions: (id: string) =>
+    fetchJson<PipelineDecision[]>(`/coverage/${id}/decisions`),
+
+  createDecision: (id: string, body: PipelineDecisionCreate) =>
+    postJsonWithBody<PipelineDecision>(`/coverage/${id}/decisions`, body),
+
+  updateDecision: (decisionId: string, body: PipelineDecisionUpdate) =>
+    patchJson<PipelineDecision>(`/pipeline-decisions/${decisionId}`, body),
 }
 
 export { ApiError }
